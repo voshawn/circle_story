@@ -45,7 +45,10 @@ defmodule CircleStory.Books.PromptBuilderTest do
       %{spread: spread, characters: characters}
     end
 
-    test "includes the spread image_prompt in a SCENE block", %{spread: spread, characters: characters} do
+    test "includes the spread image_prompt in a SCENE block", %{
+      spread: spread,
+      characters: characters
+    } do
       msg = PromptBuilder.user_message(spread, characters)
       assert msg =~ "<SCENE>"
       assert msg =~ "A heart-melting daycare pickup moment."
