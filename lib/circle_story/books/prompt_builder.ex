@@ -18,15 +18,14 @@ defmodule CircleStory.Books.PromptBuilder do
                        reproduction. Mood: Tender, nostalgic, joyful, and gently magical — like a modern \
                        classic. Avoid: Photorealism, 3D rendering, anime, sharp digital lines, neon colors, \
                        busy backgrounds, generic AI "storybook" aesthetic, paper texture, canvas texture, \
-                       grainy or rough surfaces, visible brushstrokes, scanned-art look. Do not include any \
-                       story text in the artwork. Text is only acceptable on objects in the image. \
-                       </MASTER STYLE> You will be provided with a SCENE prompt as well as one or more \
-                       CHARACTERS prompts. You may also receive reference images for the scene and \
-                       characters. Your job is to compose all of these prompts and images into a well \
-                       designed page for a book. IMPORTANT: Text will be overlayed on top of this image. \
-                       You should not generate the story text. However, you should render empty space for \
-                       text to naturally be placed on the image. Since this is a full page spread, avoid \
-                       having content in the center of the image where it would be folded by the book.
+                       grainy or rough surfaces, visible brushstrokes, scanned-art look, book spines, \
+                       page edges, gutters, fold lines, center creases, white borders, any book anatomy. \
+                       Do not include any story text in the artwork. Text is only acceptable on objects \
+                       in the image. </MASTER STYLE> You will be provided with a SCENE prompt as well as \
+                       one or more CHARACTERS prompts. You may also receive reference images for the scene \
+                       and characters. Your job is to compose all of these prompts and images into a well \
+                       designed page for a book. IMPORTANT: Generate a full-bleed illustration that fills the entire image \
+                       edge to edge. Do not render any text. Do not leave blank or white areas.
                        """
                        |> String.trim()
 
