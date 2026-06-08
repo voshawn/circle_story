@@ -60,7 +60,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
 
   defp call_llm(system_prompt, messages, aspect_ratio) do
     ReqLLM.generate_image(@model, messages,
-      system: system_prompt,
+      system_prompt: system_prompt,
       provider_options: [
         google_api_version: "v1beta",
         google_image_aspect_ratio: aspect_ratio
@@ -69,33 +69,28 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   end
 
   defp extract_image(response) do
-    # ReqLLM normalizes responses — inspect the raw response in IEx if this fails
-    # to find the correct key for your req_llm version (see Task 4 Step 6).
-    case response do
-      %{content: [%{data: data} | _]} when is_binary(data) ->
+    case ReqLLM.Response.image_data(response) do
+      nil ->
+        {:error, "no image data in response: #{inspect(response)}"}
+
+      data when is_binary(data) ->
         {:ok, data}
-
-      %{choices: [%{message: %{content: content}} | _]} when is_list(content) ->
-        content
-        |> Enum.find_value({:error, "no image data in response"}, fn
-          %{data: data} when is_binary(data) -> {:ok, data}
-          _ -> nil
-        end)
-
-      other ->
-        {:error, "unexpected response shape — run IEx debug in Step 6: #{inspect(other)}"}
     end
   end
 
   defp save_image(binary, spread, spread_type) do
     output_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
-    File.mkdir_p!(output_dir)
-    filename = build_filename(spread, spread_type)
-    path = Path.join(output_dir, filename)
 
-    case File.write(path, binary) do
-      :ok -> {:ok, path}
-      {:error, reason} -> {:error, "failed to write image: #{inspect(reason)}"}
+    with :ok <- File.mkdir_p(output_dir) do
+      filename = build_filename(spread, spread_type)
+      path = Path.join(output_dir, filename)
+
+      case File.write(path, binary) do
+        :ok -> {:ok, path}
+        {:error, reason} -> {:error, "failed to write image: #{inspect(reason)}"}
+      end
+    else
+      {:error, reason} -> {:error, "failed to create output directory: #{inspect(reason)}"}
     end
   end
 
