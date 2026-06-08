@@ -20,6 +20,7 @@ All modules live under `CircleStory.Books`.
 ```elixir
 %Book{
   title: string,
+  author: string,
   cover: %CoverSpread{},
   dedication: %DedicationSpread{},
   spreads: [%InnerSpread{}, ...],   # exactly 9
@@ -33,13 +34,17 @@ Full wraparound: back cover + spine + front cover.
 
 ```elixir
 %CoverSpread{
-  text: string,
-  image_prompt: string,
+  tagline: string,          # displayed on the back cover above the character circle
+  image_prompt: string,     # used to AI-generate the front cover artwork
   generated_image_path: string | nil
 }
 ```
 
 Target dimensions: **3863 × 1875 px**
+
+**Front cover** — AI-generated full-page artwork. `Book.title` and `Book.author` are overlaid at render time; they are not embedded in the image.
+
+**Back cover** — template-driven layout: the main character's `reference_image_path` is cropped into a circle, with `tagline` displayed above it. No separate image generation needed for the back cover.
 
 ### `DedicationSpread`
 
