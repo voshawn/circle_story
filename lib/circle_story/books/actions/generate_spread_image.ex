@@ -12,9 +12,9 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
 
   @model "google:gemini-3.1-flash-image"
 
-  # Pixel dimensions per spread type — passed as aspect ratio hint to the API
-  @inner_aspect_ratio "2:1"
-  @cover_aspect_ratio "2:1"
+  # Closest supported Gemini aspect ratio to our target ~2:1 spread dimensions
+  @inner_aspect_ratio "16:9"
+  @cover_aspect_ratio "16:9"
 
   @impl true
   def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
@@ -59,13 +59,15 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   end
 
   defp call_llm(system_prompt, messages, aspect_ratio) do
-    ReqLLM.generate_image(@model, messages,
-      system_prompt: system_prompt,
+    # System prompt passed as first message with role "system" —
+    # encode_gemini_image_body splits it into systemInstruction via split_messages_for_gemini.
+    # aspect_ratio is a top-level ReqLLM image option, not a provider_option.
+    all_messages = [%{role: "system", content: system_prompt} | messages]
+
+    ReqLLM.generate_image(@model, all_messages,
       response_format: :binary,
-      provider_options: [
-        google_api_version: "v1beta",
-        google_image_aspect_ratio: aspect_ratio
-      ]
+      aspect_ratio: aspect_ratio,
+      provider_options: [google_api_version: "v1beta"]
     )
   end
 
