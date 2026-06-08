@@ -39,11 +39,15 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImageTest do
     ]
 
     assert {:ok, %{image_path: path}} =
-             Jido.Exec.run(GenerateSpreadImage, %{
-               spread: spread,
-               characters: characters,
-               spread_type: :inner
-             }, %{})
+             Jido.Exec.run(
+               GenerateSpreadImage,
+               %{
+                 spread: spread,
+                 characters: characters,
+                 spread_type: :inner
+               },
+               %{}
+             )
 
     assert File.exists?(path)
     assert Path.extname(path) in [".png", ".jpg", ".jpeg", ".webp"]
