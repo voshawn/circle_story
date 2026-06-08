@@ -54,7 +54,11 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     # System prompt passed as role: "system" message — split_messages_for_gemini
     # converts it to systemInstruction for the Gemini API.
     all_messages = [%{role: "system", content: system_prompt} | messages]
-    ReqLLM.generate_image(@model, all_messages, aspect_ratio: "16:9")
+
+    ReqLLM.generate_image(@model, all_messages,
+      aspect_ratio: "16:9",
+      google_thinking_level: :high
+    )
   end
 
   defp extract_image(response) do
