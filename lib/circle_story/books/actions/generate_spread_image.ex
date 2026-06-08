@@ -12,27 +12,19 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
 
   @model "google:gemini-3.1-flash-image"
 
-  # Closest supported Gemini aspect ratio to our target ~2:1 spread dimensions
-  @inner_aspect_ratio "16:9"
-  @cover_aspect_ratio "16:9"
-
   @impl true
   def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
     system_prompt = PromptBuilder.system_prompt(spread_type)
     user_msg = PromptBuilder.user_message(spread, characters)
     ref_image_parts = load_reference_images(characters)
     messages = build_messages(user_msg, ref_image_parts)
-    aspect_ratio = aspect_ratio(spread_type)
 
-    with {:ok, response} <- call_llm(system_prompt, messages, aspect_ratio),
+    with {:ok, response} <- call_llm(system_prompt, messages),
          {:ok, image_binary} <- extract_image(response),
          {:ok, path} <- save_image(image_binary, spread, spread_type) do
       {:ok, %{image_path: path}}
     end
   end
-
-  defp aspect_ratio(:inner), do: @inner_aspect_ratio
-  defp aspect_ratio(:cover), do: @cover_aspect_ratio
 
   defp load_reference_images(characters) do
     characters
@@ -58,26 +50,17 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     [%{role: "user", content: [%{type: "text", text: text} | image_parts]}]
   end
 
-  defp call_llm(system_prompt, messages, aspect_ratio) do
-    # System prompt passed as first message with role "system" —
-    # encode_gemini_image_body splits it into systemInstruction via split_messages_for_gemini.
-    # aspect_ratio is a top-level ReqLLM image option, not a provider_option.
+  defp call_llm(system_prompt, messages) do
+    # System prompt passed as role: "system" message — split_messages_for_gemini
+    # converts it to systemInstruction for the Gemini API.
     all_messages = [%{role: "system", content: system_prompt} | messages]
-
-    ReqLLM.generate_image(@model, all_messages,
-      response_format: :binary,
-      aspect_ratio: aspect_ratio,
-      provider_options: [google_api_version: "v1beta"]
-    )
+    ReqLLM.generate_image(@model, all_messages, aspect_ratio: "16:9")
   end
 
   defp extract_image(response) do
     case ReqLLM.Response.image_data(response) do
-      nil ->
-        {:error, "no image data in response: #{inspect(response)}"}
-
-      data when is_binary(data) ->
-        {:ok, data}
+      nil -> {:error, "no image data in response: #{inspect(response)}"}
+      data when is_binary(data) -> {:ok, data}
     end
   end
 
