@@ -61,6 +61,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   defp call_llm(system_prompt, messages, aspect_ratio) do
     ReqLLM.generate_image(@model, messages,
       system_prompt: system_prompt,
+      response_format: :binary,
       provider_options: [
         google_api_version: "v1beta",
         google_image_aspect_ratio: aspect_ratio
