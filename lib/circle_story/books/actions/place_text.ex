@@ -9,13 +9,17 @@ defmodule CircleStory.Books.Actions.PlaceText do
     name: "place_text",
     description: "Generate a text bounding box for a book page via Gemini",
     schema: [
-      image_png: [type: :string, required: true, doc: "Print-size page image as PNG bytes"],
+      image_png: [type: :any, required: true, doc: "Print-size page image as raw PNG bytes"],
       text: [type: :string, required: true, doc: "Text to place"],
       mode: [type: {:in, [:inner, :cover]}, required: true]
     ]
 
   require Logger
 
+  # Gemini 3.x flash is used for vision + structured JSON output. If this id is
+  # ever rejected, fall back to "google:gemini-2.5-flash". On any failure `run/2`
+  # returns `default_box/1`, so a bad model id degrades to a fixed box rather than
+  # crashing — watch the Logger warning to catch it.
   @model "google:gemini-3.5-flash"
 
   @object_schema [

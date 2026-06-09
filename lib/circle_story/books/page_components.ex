@@ -71,6 +71,7 @@ defmodule CircleStory.Books.PageComponents do
       >
         {@text}
       </.fit_text>
+      <%!-- Placeholder for the user's dedication photo (future: real image) --%>
       <div style={"position:absolute;left:#{@circle_cx - @radius}px;top:#{@circle_cy - @radius}px;width:#{2 * @radius}px;height:#{2 * @radius}px;border-radius:50%;background:pink;"}>
       </div>
     </div>
@@ -121,6 +122,7 @@ defmodule CircleStory.Books.PageComponents do
         {@tagline}
       </.fit_text>
 
+      <%!-- Placeholder for the character reference image (future: real image) --%>
       <div style={"position:absolute;left:#{div(@back.w, 2) - @circle_r}px;top:#{div(@back.h, 2) - @circle_r}px;width:#{2 * @circle_r}px;height:#{2 * @circle_r}px;border-radius:50%;background:pink;"}>
       </div>
 

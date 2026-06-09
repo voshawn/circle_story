@@ -122,13 +122,16 @@ defmodule CircleStory.Books.Composition do
       png = ImageOps.to_png_bytes(fitted_image)
 
       with {:ok, box} <- PlaceText.run(%{image_png: png, text: text, mode: mode}, %{}) do
-        File.write!(
-          cache,
-          Jason.encode!(%{
-            "bounding_box" => box.bounding_box,
-            "text_align" => Atom.to_string(box.text_align)
-          })
-        )
+        # Caching is best-effort: the box is already computed, so a write failure
+        # (disk full, permissions) must not crash the render pipeline.
+        _ =
+          File.write(
+            cache,
+            Jason.encode!(%{
+              "bounding_box" => box.bounding_box,
+              "text_align" => Atom.to_string(box.text_align)
+            })
+          )
 
         {:ok, box}
       end
