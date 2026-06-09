@@ -1,7 +1,8 @@
 # Text Composition Pipeline — Design
 
 **Date:** 2026-06-09
-**Status:** Approved (pending implementation plan)
+**Status:** Approved — revised 2026-06-09 to render via an HTML/CSS intermediate
+(headless Chrome) instead of compositing directly with libvips.
 
 ## Overview
 
@@ -10,6 +11,14 @@ with text to produce **print-ready PNGs** for the cover, dedication, and inner
 spreads. Text placement on artwork-bearing pages is driven by an AI
 bounding-box call (Gemini); fixed-layout pages (dedication, back cover) are
 composited deterministically.
+
+Each page is rendered as an **HTML/CSS document** — a reusable Phoenix function
+component — and rasterized to PNG with **headless Chrome (ChromicPDF)**. The
+HTML representation is the single source of truth for layout, so the future
+in-app editor (change text, placement, color, crop/resize art) can render the
+exact same components live and re-export. The `image` library (Vix/libvips) is
+used only for deterministic source preparation (fill-crop) and luminance
+sampling — not for text or final compositing.
 
 The pipeline lives under `lib/circle_story/books/` and is wired into the
 existing `CircleStory.Books.Generator` so `generate_cover/1` and
@@ -24,10 +33,18 @@ existing `CircleStory.Books.Generator` so `generate_cover/1` and
   heavy fonts and (later) lighter artwork.
 - **Text color:** black **or** white, chosen by sampling the mean luminance of
   the placement region (no extra AI field).
-- **Fonts:** Fredoka (title/spine) + Nunito (body), vendored as TTFs.
+- **Fonts:** Fredoka (title/spine) + Nunito (body), vendored as TTFs and embedded
+  in the render document via base64 `@font-face` (no fontconfig / OS install).
 - **Safe inset:** uniform 112px (6% of 1875) on every panel/page edge.
-- **Compositing engine:** the `image` library (Vix / precompiled libvips) — no
-  system install required.
+- **Render engine:** each page is a reusable **Phoenix HEEx function component**;
+  final rasterization is **headless Chrome via ChromicPDF** (`capture_screenshot`,
+  `full_page: true`, `deviceScaleFactor: 1` → pixel-exact). Chrome/Chromium is a
+  system dependency (present in dev; installed in the prod image).
+- **Source prep & luminance:** the `image` library (Vix / bundled libvips, no
+  system install) fill-crops the raw art to print dims and samples region
+  luminance. Not used for text or final compositing.
+- **Autofit:** handled in-browser by a small text-fit script (shrinks each text
+  block to fit its box) — not a server-side font-size loop.
 - **Bbox model:** `google:gemini-3.5-flash` (fallback `google:gemini-2.5-flash`
   if the unlisted id errors).
 
@@ -55,9 +72,10 @@ priv/generated_images/<base>.bbox.json   # cached {bounding_box, text_align}
 priv/print_ready/<base>.png              # composited print-ready output
 ```
 
-`<base>` examples: `cover_front_<ts>`, `inner_3_<ts>`. Composers derive the
-bbox and output paths from the raw art path stored on the struct
-(`generated_image_path`).
+`<base>` examples: `cover_front_<ts>`, `inner_3_<ts>`. The composition facade
+derives the bbox and output paths from the raw art path stored on the struct
+(`generated_image_path`); the cheap re-compose path discovers the newest raw
+file for a page by filename prefix.
 
 ## 2. Canvas geometry (pixels)
 
@@ -106,36 +124,48 @@ Robustness:
 - Parse failure → fall back to a default box (inner: lower third; cover: upper
   center) and log a warning.
 
-## 4. Text rendering
+## 4. HTML rendering & rasterization
 
-- Fonts vendored as TTFs in `priv/fonts/` (Fredoka, Nunito). libvips is pointed
-  at them via a generated `fonts.conf` + `FONTCONFIG_PATH` set at application
-  boot (`CircleStory.Books.Fonts`) — no OS font installation.
-- `TextRenderer` renders a text run via `Image.Text` with Pango wrapping to the
-  box width, alignment from the model, and **auto-fit** font sizing (shrink from
-  a max until the rendered run fits the box height and width, bounded by a
-  min/max size).
+- **Fonts:** vendored TTFs in `priv/fonts/` (Fredoka, Nunito, Nunito-Italic) are
+  read once and emitted as base64 `@font-face` rules in the render document, so
+  the screenshot is hermetic (no static-serving or network). No fontconfig.
+- **Page components** (`PageComponents`): each page (`cover/1`, `inner_spread/1`,
+  `dedication/1`) is a pure HEEx function component. Text blocks are
+  absolutely-positioned `<div>`s at the denormalized pixel rect, with CSS
+  `text-align`, the chosen color, and font. Spine text uses
+  `transform: rotate(-90deg)`; placeholder circles use `border-radius: 50%`.
+- **Autofit:** a small inline JS fit-script scales each `.fit-text` block down to
+  fit its container after `document.fonts.ready`, then sets a `data-ready`
+  attribute on `<body>`.
+- **Rasterization** (`HtmlRenderer`): wraps a component's HTML in a full document
+  (embedded fonts, exact-size body, fit-script), then
+  `ChromicPDF.capture_screenshot({:html, html}, full_page: true, wait_for:
+  %{selector: "body[data-ready]", attribute: "data-ready"}, capture_screenshot:
+  %{format: "png"}, output: path)`. `full_page` sizes the viewport to the
+  exactly-sized body at `deviceScaleFactor: 1`, producing a pixel-exact PNG.
 - **Color** is black or white, chosen by `Luminance` sampling the mean weighted
-  luminance of the placement region on the final image (threshold ~0.6).
+  luminance of the placement region on the fitted image (threshold ~0.6), passed
+  into the component as the text color.
 
-## 5. Per-page composition
+## 5. Per-page rendering
 
-### Inner spread
-1. Fill-crop the 16:9 art to 3675×1875 (centre gravity).
-2. `PlaceText` on the resized image with the story text.
-3. Render story text (Nunito, auto-fit) into the box, aligned per model, color
-   by luminance. Composite onto the page.
+### Inner spread (3675×1875)
+1. `image` fill-crops the 16:9 art to 3675×1875 (centre) → background data URI.
+2. `PlaceText` on the fitted image with the story text → bbox + align.
+3. `Layout.denormalize` → pixel rect; `Luminance` → ink color.
+4. Render `inner_spread/1`: full-bleed background + one absolutely-positioned
+   `.fit-text` story-text block at the rect, aligned per model. Screenshot → PNG.
 
-### Cover wrap (single 3863×1875 PNG)
-- **Front** `[1988–3863]`: square art resized to 1875×1875. `PlaceText` on
-  title+author → render Title (Fredoka, large) above Author (Nunito, smaller),
-  stacked within the returned box; color by luminance.
-- **Spine** `[1875–1988]`: solid fill = desaturated **average color of the front
-  art**; vertical "Title · Author" (Fredoka), centered, color by fill luminance.
-- **Back** `[0–1875]`: same sampled fill color. Tagline top-center (Nunito
-  italic); empty **pink placeholder circle** centered (~38% of panel width,
-  later holds the character reference image); blurb bottom-left within the safe
-  inset:
+### Cover wrap (3863×1875)
+- **Front** `[1988–3863]`: square art (fill-cropped to 1875×1875) full-bleed in
+  the panel; title (Fredoka) over author (Nunito) in a `.fit-text` block at the
+  `PlaceText` box; ink by luminance.
+- **Spine** `[1875–1988]`: solid fill = softened **average color of the front
+  art**; vertical "Title · Author" (Fredoka, `rotate(-90deg)`), centered, ink by
+  fill luminance.
+- **Back** `[0–1875]`: same fill. Tagline top-center (Nunito italic); empty
+  **pink placeholder circle** centered (~38% of panel width, later holds the
+  character reference image); blurb bottom-left within the safe inset:
 
   ```
   Circle Storybooks
@@ -144,7 +174,7 @@ Robustness:
   www.circlestorybooks.com
   ```
 
-### Dedication spread (fixed, no AI call)
+### Dedication spread (3675×1875, fixed, no AI call)
 - Cream background.
 - Dedication text centered in the left page `[0–1837]` (Nunito).
 - Empty pink placeholder circle centered in the right page `[1837–3675]` (later
@@ -157,41 +187,51 @@ lib/circle_story/books/
   composition.ex                    # facade: compose_cover / compose_spread / compose_dedication
   composition/
     layout.ex                       # pure geometry: dims, panel rects, safe insets, bbox→px
-    text_renderer.ex                # Image.Text run → RGBA layer (autofit, wrap, align)
-    luminance.ex                    # sample region → :black | :white
-    cover_composer.ex
-    spread_composer.ex
-    dedication_composer.ex
+    luminance.ex                    # sample region → :black | :white (image lib)
+    image_ops.ex                    # fill-crop fit, data-URI encode, paths, latest-raw discovery
+    fonts.ex                        # read TTFs → base64 @font-face CSS
+    html_renderer.ex                # component HTML → wrapper doc → ChromicPDF screenshot → PNG
+  page_components.ex                # HEEx function components: cover/1, inner_spread/1, dedication/1
   actions/
     place_text.ex                   # Jido action: bbox AI call (generate_object)
-  fonts.ex                          # fontconfig setup at boot
-priv/fonts/{Fredoka,Nunito}*.ttf    # vendored TTFs
+priv/fonts/{Fredoka,Nunito,Nunito-Italic}.ttf   # vendored TTFs
 ```
 
 - `generator.ex` wires `generate_*` → existing `GenerateSpreadImage` +
-  `PlaceText` + the relevant composer; adds `compose_*` for cheap re-runs.
-- New dependency: `{:image, "~> 0.x"}` (pulls in `:vix` + precompiled libvips).
-- `CircleStory.Books.Fonts` (fontconfig setup) runs at application boot.
+  `PlaceText` + the facade; adds `compose_*` for cheap re-runs.
+- New dependencies: `{:image, "~> 0.68"}` (Vix + bundled libvips) and
+  `{:chromic_pdf, "~> 1.17"}`. `ChromicPDF` is started in the supervision tree.
+- `page_components.ex` is plain presentation, reused by the future LiveView
+  editor.
 
 ## 7. Testing & error handling
 
 ### Tests
 - **Pure unit (no network/images):** `Layout` geometry (panels tile the canvas,
   bbox→px mapping, safe-inset clamping); `PlaceText` JSON parse / validate /
-  clamp / fallback against stubbed responses.
+  clamp / fallback against stubbed responses; `Fonts` `@font-face` CSS contains
+  the families; `ImageOps` path helpers + latest-raw discovery.
 - **Image tests with local fixtures (no network):** `Luminance` against
-  synthetic black/white swatches; `TextRenderer` output dimensions ≤ box and ≥
-  min size; composers fed a fixture raw-art PNG + injected bbox → assert output
-  PNG exists at the correct dimensions.
-- Live AI calls are **not** part of the test suite.
+  synthetic black/white swatches; `ImageOps.fit` produces exact dimensions.
+- **Component tests (no browser):** render `cover/1` / `inner_spread/1` /
+  `dedication/1` via `render_component` and assert the page-size container, the
+  text content, the positioned rect, alignment, and color appear in the markup.
+- **Screenshot/E2E (`:integration`, needs Chrome, excluded by default):**
+  `HtmlRenderer` + the facade produce a PNG at the exact print dimensions. Live
+  AI calls are likewise `:integration` and excluded.
 
 ### Errors
-- Missing raw art / font / unreadable image → `{:error, reason}`.
+- Missing raw art / unreadable image → `{:error, reason}`.
 - Malformed or out-of-range bbox → clamp to safe area; total parse failure →
   documented fallback box + warning log.
+- Screenshot failure (Chrome missing/crash) → `{:error, reason}` surfaced from
+  ChromicPDF.
 
 ## Out of scope (future)
 
+- The in-app editor UI itself (live text/placement/color editing, interactive
+  crop/resize). This pivot only builds the HTML-intermediate render + PNG export
+  that the editor will later reuse via the same `PageComponents`.
 - Inserting real character reference images into the placeholder circles.
 - Real user photo into the dedication circle.
 - Full-book assembly / PDF export across all pages.
