@@ -7,19 +7,21 @@ defmodule CircleStory.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      CircleStoryWeb.Telemetry,
-      CircleStory.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:circle_story, :ecto_repos), skip: skip_migrations?()},
-      {DNSCluster, query: Application.get_env(:circle_story, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: CircleStory.PubSub},
-      # Start a worker by calling: CircleStory.Worker.start_link(arg)
-      # {CircleStory.Worker, arg},
-      # Start to serve requests, typically the last entry
-      CircleStoryWeb.Endpoint,
-      CircleStory.Jido
-    ]
+    children =
+      maybe_chromic_pdf() ++
+        [
+          CircleStoryWeb.Telemetry,
+          CircleStory.Repo,
+          {Ecto.Migrator,
+           repos: Application.fetch_env!(:circle_story, :ecto_repos), skip: skip_migrations?()},
+          {DNSCluster, query: Application.get_env(:circle_story, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: CircleStory.PubSub},
+          # Start a worker by calling: CircleStory.Worker.start_link(arg)
+          # {CircleStory.Worker, arg},
+          # Start to serve requests, typically the last entry
+          CircleStoryWeb.Endpoint,
+          CircleStory.Jido
+        ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -33,6 +35,14 @@ defmodule CircleStory.Application do
   def config_change(changed, _new, removed) do
     CircleStoryWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  defp maybe_chromic_pdf do
+    if Application.get_env(:circle_story, :start_chromic_pdf, true) do
+      [{ChromicPDF, []}]
+    else
+      []
+    end
   end
 
   defp skip_migrations?() do
