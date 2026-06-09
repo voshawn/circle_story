@@ -50,3 +50,6 @@ npm-debug.log
 
 # macOS
 .DS_Store
+
+# Superpowers brainstorm visual companion
+.superpowers/
