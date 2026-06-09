@@ -137,12 +137,15 @@ Robustness:
 - **Autofit:** a small inline JS fit-script scales each `.fit-text` block down to
   fit its container after `document.fonts.ready`, then sets a `data-ready`
   attribute on `<body>`.
-- **Rasterization** (`HtmlRenderer`): wraps a component's HTML in a full document
-  (embedded fonts, exact-size body, fit-script), then
-  `ChromicPDF.capture_screenshot({:html, html}, full_page: true, wait_for:
-  %{selector: "body[data-ready]", attribute: "data-ready"}, capture_screenshot:
-  %{format: "png"}, output: path)`. `full_page` sizes the viewport to the
-  exactly-sized body at `deviceScaleFactor: 1`, producing a pixel-exact PNG.
+- **Rasterization** (`HtmlRenderer.to_png/3`): wraps a component's HTML in a full
+  document (embedded fonts, exact-size body, fit-script), then
+  `ChromicPDF.capture_screenshot({:html, html}, wait_for: %{selector:
+  "body[data-ready]", attribute: "data-ready"}, capture_screenshot: %{"format" =>
+  "png", "clip" => %{x:0, y:0, width, height, scale: 1}, "captureBeyondViewport"
+  => true}, output: path)`. The CDP `clip` region (callers pass
+  `Layout.inner_dims()`/`cover_dims()`) with `captureBeyondViewport` and
+  `scale: 1` produces a pixel-exact PNG regardless of the headless viewport size.
+  (`full_page: true` does not work — it sizes to the default viewport.)
 - **Color** is black or white, chosen by `Luminance` sampling the mean weighted
   luminance of the placement region on the fitted image (threshold ~0.6), passed
   into the component as the text color.

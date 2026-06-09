@@ -1102,13 +1102,13 @@ defmodule CircleStory.Books.Composition.HtmlRendererTest do
   end
 
   @tag :integration
-  test "to_png/2 screenshots a page to an exact-size PNG" do
+  test "to_png/3 screenshots a page to an exact-size PNG" do
     start_supervised!({ChromicPDF, []})
 
     page = ~s(<div style="width:400px;height:200px;background:teal"></div>)
     out = Path.join(System.tmp_dir!(), "hr_#{System.unique_integer([:positive])}.png")
 
-    assert {:ok, ^out} = HtmlRenderer.to_png(page, out)
+    assert {:ok, ^out} = HtmlRenderer.to_png(page, {400, 200}, out)
     img = Image.open!(out)
     assert Image.width(img) == 400
     assert Image.height(img) == 200
@@ -1184,15 +1184,25 @@ defmodule CircleStory.Books.Composition.HtmlRenderer do
   end
 
   @doc """
-  Screenshot `page_html` to `output_path` as a pixel-exact PNG. Waits for fonts +
-  fit completion via the `data-ready` body attribute. Returns `{:ok, output_path}`.
+  Screenshot `page_html` to `output_path` as a pixel-exact `width` x `height` PNG.
+
+  Uses the CDP `clip` region with `captureBeyondViewport` and `scale: 1`, so the
+  exact print dimensions are captured regardless of the headless viewport size.
+  (`full_page: true` does NOT work here — it sizes to the default viewport, not
+  the content.) Waits for fonts + fit completion via the `data-ready` body attribute.
   """
-  @spec to_png(String.t(), Path.t()) :: {:ok, Path.t()} | {:error, term()}
-  def to_png(page_html, output_path) do
+  @spec to_png(String.t(), {pos_integer(), pos_integer()}, Path.t()) ::
+          {:ok, Path.t()} | {:error, term()}
+  def to_png(page_html, {width, height}, output_path) do
+    clip = %{"x" => 0, "y" => 0, "width" => width, "height" => height, "scale" => 1}
+
     case ChromicPDF.capture_screenshot({:html, document(page_html)},
-           full_page: true,
            wait_for: %{selector: "body[data-ready]", attribute: "data-ready"},
-           capture_screenshot: %{format: "png"},
+           capture_screenshot: %{
+             "format" => "png",
+             "clip" => clip,
+             "captureBeyondViewport" => true
+           },
            output: output_path
          ) do
       :ok -> {:ok, output_path}
@@ -1314,7 +1324,7 @@ defmodule CircleStory.Books.Composition do
   @spec compose_spread(InnerSpread.t(), keyword()) :: {:ok, %{image_path: String.t()}} | {:error, term()}
   def compose_spread(%InnerSpread{} = spread, opts \\ []) do
     with {:ok, html, out} <- spread_html(spread, opts),
-         {:ok, path} <- HtmlRenderer.to_png(html, out) do
+         {:ok, path} <- HtmlRenderer.to_png(html, Layout.inner_dims(), out) do
       {:ok, %{image_path: path}}
     end
   end
@@ -1322,7 +1332,7 @@ defmodule CircleStory.Books.Composition do
   @spec compose_cover(Book.t(), keyword()) :: {:ok, %{image_path: String.t()}} | {:error, term()}
   def compose_cover(%Book{} = book, opts \\ []) do
     with {:ok, html, out} <- cover_html(book, opts),
-         {:ok, path} <- HtmlRenderer.to_png(html, out) do
+         {:ok, path} <- HtmlRenderer.to_png(html, Layout.cover_dims(), out) do
       {:ok, %{image_path: path}}
     end
   end
@@ -1330,7 +1340,7 @@ defmodule CircleStory.Books.Composition do
   @spec compose_dedication(DedicationSpread.t()) :: {:ok, %{image_path: String.t()}} | {:error, term()}
   def compose_dedication(%DedicationSpread{} = dedication) do
     with {:ok, html, out} <- dedication_html(dedication),
-         {:ok, path} <- HtmlRenderer.to_png(html, out) do
+         {:ok, path} <- HtmlRenderer.to_png(html, Layout.inner_dims(), out) do
       {:ok, %{image_path: path}}
     end
   end
@@ -1582,7 +1592,7 @@ git commit -m "chore: final verification fixes for composition pipeline"
 ## Notes for the implementer
 
 - **Chrome dependency:** ChromicPDF needs a Chrome/Chromium binary. Dev macOS auto-detects Google Chrome. CI/prod must install Chromium (or set `chrome_executable:`). The suite disables ChromicPDF at boot in `:test` (`config :circle_story, start_chromic_pdf: false`); integration tests start it via `start_supervised!({ChromicPDF, []})`.
-- **Pixel-exactness:** `full_page: true` sizes the viewport to the body's content at `deviceScaleFactor: 1`. Each page component's outer `<div>` is exactly the print dimensions and the CSS reset removes margins, so the screenshot is exactly W×H.
+- **Pixel-exactness:** `HtmlRenderer.to_png/3` captures with a CDP `clip` region (`x:0,y:0,width,height,scale:1`) plus `captureBeyondViewport: true`, so the exact print dimensions are captured regardless of the headless viewport. (`full_page: true` does NOT work — it sizes to the default viewport, not the content. Verified.) Callers pass `Layout.inner_dims()`/`Layout.cover_dims()`.
 - **Fonts:** embedded as base64 `@font-face` (no fontconfig). The fit-script waits for `document.fonts.ready` before measuring, so embedded fonts are loaded before autofit + capture.
 - **`gemini-3.5-flash`:** not in the local `llm_db` registry but req_llm accepts unlisted ids. If it errors at runtime, change `@model` in `PlaceText` to `"google:gemini-2.5-flash"`.
 - **Rendering components to strings:** `~H` returns a `Phoenix.LiveView.Rendered` struct that implements `Phoenix.HTML.Safe`; `HtmlRenderer.component_to_html/1` converts it. Component unit tests use `Phoenix.LiveViewTest.render_component/2`.
