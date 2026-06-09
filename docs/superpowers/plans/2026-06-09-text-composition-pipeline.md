@@ -295,7 +295,7 @@ defmodule CircleStory.Books.Composition.LuminanceTest do
 
   test "luminance/1 is 0..255" do
     assert Luminance.luminance([0, 0, 0]) == 0.0
-    # Rec. 709 coefficients sum to 1.0 in rationals but not in float64.
+    # The per-channel multiply-add accumulates float64 rounding (~254.9999997).
     assert_in_delta Luminance.luminance([255, 255, 255]), 255.0, 0.01
   end
 
