@@ -1376,7 +1376,8 @@ defmodule CircleStory.Books.Composition do
 
   @spec cover_html(Book.t(), keyword()) :: {:ok, String.t(), String.t()} | {:error, term()}
   def cover_html(%Book{cover: %CoverSpread{generated_image_path: raw} = cover} = book, opts \\ []) do
-    front = ImageOps.fit(raw, 1875, 1875)
+    %{w: pw, h: ph} = Layout.front_region_local()
+    front = ImageOps.fit(raw, pw, ph)
     text = "#{book.title}\n#{book.author}"
 
     with {:ok, box} <- placement(raw, front, text, :cover, opts) do
@@ -1482,7 +1483,7 @@ defmodule CircleStory.Books.Generator do
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.compose_cover(book)
   """
 
-  alias CircleStory.Books.{Book, Composition, CoverSpread, InnerSpread, PromptBuilder}
+  alias CircleStory.Books.{Book, Composition, CoverSpread, DedicationSpread, InnerSpread, PromptBuilder}
   alias CircleStory.Books.Actions.GenerateSpreadImage
   alias CircleStory.Books.Composition.ImageOps
 
@@ -1525,7 +1526,10 @@ defmodule CircleStory.Books.Generator do
   end
 
   @spec compose_dedication(Book.t()) :: {:ok, map()} | {:error, term()}
-  def compose_dedication(%Book{dedication: dedication}), do: Composition.compose_dedication(dedication)
+  def compose_dedication(%Book{dedication: %DedicationSpread{} = dedication}),
+    do: Composition.compose_dedication(dedication)
+
+  def compose_dedication(%Book{dedication: nil}), do: {:error, :no_dedication}
 
   @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
