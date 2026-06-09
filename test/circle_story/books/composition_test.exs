@@ -10,6 +10,12 @@ defmodule CircleStory.Books.CompositionTest do
     File.mkdir_p!(dir)
     path = Path.join(dir, "#{name}_#{System.unique_integer([:positive])}.png")
     Image.write!(Image.new!(w, h, color: color), path)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm(ImageOps.bbox_path(path))
+    end)
+
     path
   end
 

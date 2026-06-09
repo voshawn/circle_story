@@ -12,9 +12,19 @@ defmodule CircleStory.Books.Generator do
 
       # Cheap re-render from cached raw art + cached bbox (no model calls)
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.compose_cover(book)
+      {:ok, %{image_path: path}} = CircleStory.Books.Generator.compose_spread(book, 1)
+      {:ok, %{image_path: path}} = CircleStory.Books.Generator.compose_dedication(book)
   """
 
-  alias CircleStory.Books.{Book, Composition, CoverSpread, InnerSpread, PromptBuilder}
+  alias CircleStory.Books.{
+    Book,
+    Composition,
+    CoverSpread,
+    DedicationSpread,
+    InnerSpread,
+    PromptBuilder
+  }
+
   alias CircleStory.Books.Actions.GenerateSpreadImage
   alias CircleStory.Books.Composition.ImageOps
 
@@ -57,8 +67,10 @@ defmodule CircleStory.Books.Generator do
   end
 
   @spec compose_dedication(Book.t()) :: {:ok, map()} | {:error, term()}
-  def compose_dedication(%Book{dedication: dedication}),
+  def compose_dedication(%Book{dedication: %DedicationSpread{} = dedication}),
     do: Composition.compose_dedication(dedication)
+
+  def compose_dedication(%Book{dedication: nil}), do: {:error, :no_dedication}
 
   @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}

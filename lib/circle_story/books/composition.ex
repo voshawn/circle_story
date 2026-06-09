@@ -69,7 +69,8 @@ defmodule CircleStory.Books.Composition do
 
   @spec cover_html(Book.t(), keyword()) :: {:ok, String.t(), String.t()} | {:error, term()}
   def cover_html(%Book{cover: %CoverSpread{generated_image_path: raw} = cover} = book, opts \\ []) do
-    front = ImageOps.fit(raw, 1875, 1875)
+    %{w: pw, h: ph} = Layout.front_region_local()
+    front = ImageOps.fit(raw, pw, ph)
     text = "#{book.title}\n#{book.author}"
 
     with {:ok, box} <- placement(raw, front, text, :cover, opts) do
