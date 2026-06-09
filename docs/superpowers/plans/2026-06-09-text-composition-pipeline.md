@@ -1284,7 +1284,8 @@ defmodule CircleStory.Books.CompositionTest do
 
     assert {:ok, html, _out} = Composition.cover_html(book)
     assert html =~ "width:3863px"
-    assert html =~ "Nani's Magic Thread"
+    # HEEx escapes the apostrophe in `{@title}`.
+    assert html =~ "Nani&#39;s Magic Thread"
     assert html =~ "left:1988px"
   end
 
