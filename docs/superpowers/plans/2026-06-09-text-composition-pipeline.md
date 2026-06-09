@@ -567,6 +567,11 @@ defmodule CircleStory.Books.Composition.Fonts do
     %{family: "Nunito", file: "Nunito-Italic.ttf", style: "italic"}
   ]
 
+  # Recompile this module if any vendored TTF changes (the CSS bakes them in at compile time).
+  for %{file: file} <- @fonts do
+    @external_resource Path.join([:code.priv_dir(:circle_story), "fonts", file])
+  end
+
   @font_face_css (for %{family: family, file: file, style: style} <- @fonts do
                     path = Path.join([:code.priv_dir(:circle_story), "fonts", file])
                     base64 = path |> File.read!() |> Base.encode64()
