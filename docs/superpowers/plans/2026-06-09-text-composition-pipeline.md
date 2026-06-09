@@ -1197,7 +1197,10 @@ defmodule CircleStory.Books.Composition.HtmlRenderer do
     clip = %{"x" => 0, "y" => 0, "width" => width, "height" => height, "scale" => 1}
 
     case ChromicPDF.capture_screenshot({:html, document(page_html)},
-           wait_for: %{selector: "body[data-ready]", attribute: "data-ready"},
+           # `selector` must match an element that already exists; ChromicPDF polls
+           # `querySelector(selector).hasAttribute(attribute)`, so "body[data-ready]"
+           # is null until ready and throws. Wait on plain "body" gaining the attr.
+           wait_for: %{selector: "body", attribute: "data-ready"},
            capture_screenshot: %{
              "format" => "png",
              "clip" => clip,

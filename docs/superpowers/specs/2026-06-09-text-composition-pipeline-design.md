@@ -140,7 +140,7 @@ Robustness:
 - **Rasterization** (`HtmlRenderer.to_png/3`): wraps a component's HTML in a full
   document (embedded fonts, exact-size body, fit-script), then
   `ChromicPDF.capture_screenshot({:html, html}, wait_for: %{selector:
-  "body[data-ready]", attribute: "data-ready"}, capture_screenshot: %{"format" =>
+  "body", attribute: "data-ready"}, capture_screenshot: %{"format" =>
   "png", "clip" => %{x:0, y:0, width, height, scale: 1}, "captureBeyondViewport"
   => true}, output: path)`. The CDP `clip` region (callers pass
   `Layout.inner_dims()`/`cover_dims()`) with `captureBeyondViewport` and
