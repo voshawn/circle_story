@@ -172,9 +172,10 @@ defmodule CircleStory.Books.Composition.LayoutTest do
     assert Layout.front_region_local() == %{x: 0, y: 0, w: 1875, h: 1875}
   end
 
-  test "denormalize maps a 1000-grid box into region pixels" do
-    rect = Layout.denormalize([100, 200, 400, 600], %{x: 0, y: 0, w: 1000, h: 1000})
-    assert rect == %{x: 200, y: 100, w: 400, h: 300}
+  test "denormalize maps an interior 1000-grid box into region pixels" do
+    # Interior box (all coords within the 112..888 safe band) maps straight through.
+    rect = Layout.denormalize([200, 200, 800, 800], %{x: 0, y: 0, w: 1000, h: 1000})
+    assert rect == %{x: 200, y: 200, w: 600, h: 600}
   end
 
   test "denormalize clamps to the safe inset" do
@@ -184,8 +185,8 @@ defmodule CircleStory.Books.Composition.LayoutTest do
   end
 
   test "denormalize normalizes inverted coordinates" do
-    rect = Layout.denormalize([400, 600, 100, 200], %{x: 0, y: 0, w: 1000, h: 1000})
-    assert rect == %{x: 200, y: 100, w: 400, h: 300}
+    rect = Layout.denormalize([800, 800, 200, 200], %{x: 0, y: 0, w: 1000, h: 1000})
+    assert rect == %{x: 200, y: 200, w: 600, h: 600}
   end
 end
 ```
