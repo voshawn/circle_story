@@ -1262,7 +1262,7 @@ defmodule CircleStory.Books.CompositionTest do
   end
 
   test "spread_html/2 builds a 3675px page with the story text using a cached bbox" do
-    raw = write_raw("inner_1", 1600, 900, :sage)
+    raw = write_raw("inner_1", 1600, 900, :green)
     cache_bbox(raw, [650, 100, 900, 900], "center")
     spread = %InnerSpread{position: 1, text: "Meet Ornella.", image_prompt: "x", generated_image_path: raw}
 
@@ -1359,13 +1359,15 @@ defmodule CircleStory.Books.Composition do
 
       html =
         HtmlRenderer.component_to_html(
-          PageComponents.inner_spread(%{
-            art_uri: ImageOps.to_data_uri(fitted),
-            text: text,
-            rect: rect,
-            align: box.text_align,
-            color: color
-          })
+          PageComponents.inner_spread(
+            init_assigns(%{
+              art_uri: ImageOps.to_data_uri(fitted),
+              text: text,
+              rect: rect,
+              align: box.text_align,
+              color: color
+            })
+          )
         )
 
       {:ok, html, ImageOps.print_ready_path(raw)}
@@ -1385,17 +1387,19 @@ defmodule CircleStory.Books.Composition do
 
       html =
         HtmlRenderer.component_to_html(
-          PageComponents.cover(%{
-            art_uri: ImageOps.to_data_uri(front),
-            rect: rect,
-            align: box.text_align,
-            front_color: front_color,
-            title: book.title,
-            author: book.author,
-            tagline: cover.tagline,
-            fill: rgb_css(fill_rgb),
-            ink: ink
-          })
+          PageComponents.cover(
+            init_assigns(%{
+              art_uri: ImageOps.to_data_uri(front),
+              rect: rect,
+              align: box.text_align,
+              front_color: front_color,
+              title: book.title,
+              author: book.author,
+              tagline: cover.tagline,
+              fill: rgb_css(fill_rgb),
+              ink: ink
+            })
+          )
         )
 
       {:ok, html, ImageOps.print_ready_path(raw)}
@@ -1404,7 +1408,7 @@ defmodule CircleStory.Books.Composition do
 
   @spec dedication_html(DedicationSpread.t()) :: {:ok, String.t(), String.t()}
   def dedication_html(%DedicationSpread{text: text}) do
-    html = HtmlRenderer.component_to_html(PageComponents.dedication(%{text: text}))
+    html = HtmlRenderer.component_to_html(PageComponents.dedication(init_assigns(%{text: text})))
     dir = Path.join(:code.priv_dir(:circle_story), "print_ready")
     File.mkdir_p!(dir)
     {:ok, html, Path.join(dir, "dedication.png")}
@@ -1444,6 +1448,11 @@ defmodule CircleStory.Books.Composition do
   defp align_atom(_), do: :center
 
   defp rgb_css([r, g, b | _]), do: "rgb(#{r},#{g},#{b})"
+
+  # Inject Phoenix.Component change-tracking metadata so components can be called
+  # outside of a HEEx template (e.g. from this pipeline). `to_iodata/1` then does
+  # a full render, so `%{}` (nothing-changed) still emits all dynamic content.
+  defp init_assigns(assigns), do: Map.put(assigns, :__changed__, %{})
 end
 ```
 
