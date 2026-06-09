@@ -295,7 +295,8 @@ defmodule CircleStory.Books.Composition.LuminanceTest do
 
   test "luminance/1 is 0..255" do
     assert Luminance.luminance([0, 0, 0]) == 0.0
-    assert Luminance.luminance([255, 255, 255]) == 255.0
+    # Rec. 709 coefficients sum to 1.0 in rationals but not in float64.
+    assert_in_delta Luminance.luminance([255, 255, 255]), 255.0, 0.01
   end
 
   test "color_for/1 picks black on light, white on dark" do
