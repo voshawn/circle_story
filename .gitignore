@@ -47,3 +47,6 @@ npm-debug.log
 
 # Environment Variables
 .env
+
+# macOS
+.DS_Store
