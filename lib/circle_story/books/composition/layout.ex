@@ -37,7 +37,12 @@ defmodule CircleStory.Books.Composition.Layout do
   `region`, clamped so the whole rect stays inside the safe inset. Inverted
   coordinates are normalized.
   """
-  @spec denormalize([number()], map()) :: %{x: integer(), y: integer(), w: integer(), h: integer()}
+  @spec denormalize([number()], map()) :: %{
+          x: integer(),
+          y: integer(),
+          w: integer(),
+          h: integer()
+        }
   def denormalize([ymin, xmin, ymax, xmax], region) do
     x0 = region.x + min(xmin, xmax) / 1000 * region.w
     x1 = region.x + max(xmin, xmax) / 1000 * region.w
