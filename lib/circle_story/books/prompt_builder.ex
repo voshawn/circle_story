@@ -46,12 +46,13 @@ defmodule CircleStory.Books.PromptBuilder do
                        and gently magical — like a modern classic. Avoid: Photorealism, 3D rendering, anime, \
                        sharp digital lines, neon colors, busy backgrounds, generic AI "storybook" aesthetic, \
                        paper texture, canvas texture, grainy or rough surfaces, visible brushstrokes, \
-                       scanned-art look. Do not include any story text in the artwork. Text is only acceptable \
-                       on objects in the image. </MASTER STYLE> You will be provided with a SCENE prompt and \
-                       CHARACTER prompts. Compose a compelling front cover image. IMPORTANT: The book title \
-                       and author name will be overlaid on this image — leave clear space at the top or bottom \
-                       for text overlay. Design with a strong focal point featuring the main character, with \
-                       an inviting, eye-catching composition suitable for a children's board book cover.
+                       scanned-art look. </MASTER STYLE> You will be provided with a SCENE prompt and \
+                       CHARACTER prompts. Compose a compelling front cover image. IMPORTANT: Do not render \
+                       any text, letters, words, or typography anywhere in the image — no title, no author \
+                       name, no labels of any kind. The book title and author name will be overlaid \
+                       separately in post-production. Leave clear space at the top for text overlay. Design \
+                       with a strong focal point featuring the main character, with an inviting, eye-catching \
+                       composition suitable for a children's board book cover.
                        """
                        |> String.trim()
 

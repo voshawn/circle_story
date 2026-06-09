@@ -19,7 +19,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     ref_image_parts = load_reference_images(characters)
     messages = build_messages(user_msg, ref_image_parts)
 
-    with {:ok, response} <- call_llm(system_prompt, messages),
+    with {:ok, response} <- call_llm(system_prompt, messages, aspect_ratio(spread_type)),
          {:ok, image_binary} <- extract_image(response),
          {:ok, path} <- save_image(image_binary, spread, spread_type) do
       {:ok, %{image_path: path}}
@@ -50,16 +50,19 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     [%{role: "user", content: [%{type: "text", text: text} | image_parts]}]
   end
 
-  defp call_llm(system_prompt, messages) do
+  defp call_llm(system_prompt, messages, aspect_ratio) do
     # System prompt passed as role: "system" message — split_messages_for_gemini
     # converts it to systemInstruction for the Gemini API.
     all_messages = [%{role: "system", content: system_prompt} | messages]
 
     ReqLLM.generate_image(@model, all_messages,
-      aspect_ratio: "16:9",
+      aspect_ratio: aspect_ratio,
       google_thinking_level: :high
     )
   end
+
+  defp aspect_ratio(:cover), do: "1:1"
+  defp aspect_ratio(:inner), do: "16:9"
 
   defp extract_image(response) do
     case ReqLLM.Response.image_data(response) do
@@ -91,7 +94,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
 
   defp build_filename(_spread, :cover) do
     ts = System.os_time(:second)
-    "cover_#{ts}.png"
+    "cover_front_#{ts}.png"
   end
 
   defp mime_type(path) do
