@@ -18,18 +18,21 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   alias ReqLLM.Message.ContentPart
 
-  # Gemini 3.1 Flash-Lite: cost-efficient, low-latency, supports image input +
-  # structured JSON output — plenty for bounding-box placement, and less prone to
-  # the 503 overload seen on gemini-3.5-flash. On any failure `run/2` returns
-  # `default_box/1`, so a bad model id degrades to a fixed box rather than
-  # crashing — watch the Logger warning to catch it.
+  # Gemini 3.1 Flash-Lite: cost-efficient, low-latency, supports image input. On
+  # any failure `run/2` returns `default_box/1`, so a bad model id degrades to a
+  # fixed box rather than crashing — watch the Logger warning to catch it.
   @model "google:gemini-3.1-flash-lite"
 
-  @object_schema [
-    bounding_box: [type: {:list, :integer}, required: true],
-    text_align: [type: :string, required: true],
-    vertical_align: [type: :string, required: true]
-  ]
+  # Thinking level for the placement reasoning (:minimal | :low | :medium | :high).
+  #
+  # NOTE: we use `generate_text` (not `generate_object`) on purpose. req_llm's
+  # structured-output path forces `responseMimeType: application/json`, which
+  # conflicts with thinking — Gemini returns the thought *summary* as the body and
+  # no JSON, so the object can't be parsed (breaks at :medium/:high). With
+  # `generate_text`, the thought lands in a separate `:thinking` part and
+  # `Response.text/1` returns only the answer, which we JSON-decode ourselves —
+  # so any thinking level works.
+  @thinking_level :medium
 
   @impl true
   def run(%{image_png: png, text: text, mode: mode}, _context) do
@@ -44,11 +47,12 @@ defmodule CircleStory.Books.Actions.PlaceText do
     ]
 
     with {:ok, response} <-
-           ReqLLM.generate_object(@model, messages, @object_schema, google_thinking_level: :low),
-         object when is_map(object) <- ReqLLM.Response.object(response),
+           ReqLLM.generate_text(@model, messages, google_thinking_level: @thinking_level),
+         body when is_binary(body) <- ReqLLM.Response.text(response),
+         {:ok, object} <- decode_json(body),
          {:ok, result} <- parse_result(object) do
       Logger.info(
-        "PlaceText[#{mode}] model=#{@model} raw=#{inspect(object)} parsed=#{inspect(result)}"
+        "PlaceText[#{mode}] model=#{@model} thinking=#{@thinking_level} parsed=#{inspect(result)}"
       )
 
       {:ok, result}
@@ -60,6 +64,16 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
         {:ok, default_box(mode)}
     end
+  end
+
+  # The model is told to return JSON only, but defensively strip a ```json fence.
+  defp decode_json(body) do
+    body
+    |> String.trim()
+    |> String.replace(~r/\A```(?:json)?\s*/i, "")
+    |> String.replace(~r/\s*```\z/, "")
+    |> String.trim()
+    |> Jason.decode()
   end
 
   # Concise error summary for logs — avoids dumping the full request body (which
