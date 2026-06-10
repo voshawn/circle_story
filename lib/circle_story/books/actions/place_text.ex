@@ -42,10 +42,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
     with {:ok, response} <- ReqLLM.generate_object(@model, messages, @object_schema),
          object when is_map(object) <- ReqLLM.Response.object(response),
          {:ok, result} <- parse_result(object) do
+      Logger.info(
+        "PlaceText[#{mode}] model=#{@model} raw=#{inspect(object)} parsed=#{inspect(result)}"
+      )
+
       {:ok, result}
     else
       other ->
-        Logger.warning("PlaceText falling back to default box: #{inspect(other)}")
+        Logger.warning("PlaceText[#{mode}] falling back to default box: #{inspect(other)}")
         {:ok, default_box(mode)}
     end
   end
