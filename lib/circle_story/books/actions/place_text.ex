@@ -18,11 +18,12 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   alias ReqLLM.Message.ContentPart
 
-  # Gemini 3.x flash is used for vision + structured JSON output. If this id is
-  # ever rejected, fall back to "google:gemini-2.5-flash". On any failure `run/2`
-  # returns `default_box/1`, so a bad model id degrades to a fixed box rather than
+  # Gemini 3.1 Flash-Lite: cost-efficient, low-latency, supports image input +
+  # structured JSON output — plenty for bounding-box placement, and less prone to
+  # the 503 overload seen on gemini-3.5-flash. On any failure `run/2` returns
+  # `default_box/1`, so a bad model id degrades to a fixed box rather than
   # crashing — watch the Logger warning to catch it.
-  @model "google:gemini-3.5-flash"
+  @model "google:gemini-3.1-flash-lite"
 
   @object_schema [
     bounding_box: [type: {:list, :integer}, required: true],

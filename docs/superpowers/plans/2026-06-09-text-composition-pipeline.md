@@ -686,7 +686,7 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   require Logger
 
-  @model "google:gemini-3.5-flash"
+  @model "google:gemini-3.1-flash-lite"
 
   @object_schema [
     bounding_box: [type: {:list, :integer}, required: true],
@@ -1611,7 +1611,7 @@ git commit -m "chore: final verification fixes for composition pipeline"
 - **Chrome dependency:** ChromicPDF needs a Chrome/Chromium binary. Dev macOS auto-detects Google Chrome. CI/prod must install Chromium (or set `chrome_executable:`). The suite disables ChromicPDF at boot in `:test` (`config :circle_story, start_chromic_pdf: false`); integration tests start it via `start_supervised!({ChromicPDF, []})`.
 - **Pixel-exactness:** `HtmlRenderer.to_png/3` captures with a CDP `clip` region (`x:0,y:0,width,height,scale:1`) plus `captureBeyondViewport: true`, so the exact print dimensions are captured regardless of the headless viewport. (`full_page: true` does NOT work — it sizes to the default viewport, not the content. Verified.) Callers pass `Layout.inner_dims()`/`Layout.cover_dims()`.
 - **Fonts:** embedded as base64 `@font-face` (no fontconfig). The fit-script waits for `document.fonts.ready` before measuring, so embedded fonts are loaded before autofit + capture.
-- **`gemini-3.5-flash`:** not in the local `llm_db` registry but req_llm accepts unlisted ids. If it errors at runtime, change `@model` in `PlaceText` to `"google:gemini-2.5-flash"`.
+- **`gemini-3.1-flash-lite`:** cost-efficient, low-latency, supports image input + structured JSON output. (We started on `gemini-3.5-flash` but it was prone to 503 overload.) On any failure `PlaceText.run/2` falls back to `default_box/1`, so a bad/unavailable model degrades to a fixed box rather than crashing.
 - **Rendering components to strings:** `~H` returns a `Phoenix.LiveView.Rendered` struct that implements `Phoenix.HTML.Safe`; `HtmlRenderer.component_to_html/1` converts it. Component unit tests use `Phoenix.LiveViewTest.render_component/2`.
 - **No Ecto:** all state is sidecar files (`priv/generated_images/*.bbox.json`, `priv/print_ready/*.png`).
 - **Future editor:** `PageComponents` are the reuse seam — the in-app editor renders the same components live (text/placement/color edits → re-`compose_*`); interactive crop later moves the front/inner art crop into CSS (`object-position`/scale) instead of the server-side `ImageOps.fit`.

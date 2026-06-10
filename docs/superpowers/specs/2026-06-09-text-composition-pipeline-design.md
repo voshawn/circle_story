@@ -49,8 +49,8 @@ existing `CircleStory.Books.Generator` so `generate_cover/1` and
   generous box (the cover title is the "hero"), and `Layout.denormalize/3`
   floors the box up to a minimum (`:min_w_frac`/`:min_h_frac`; cover 0.55×0.22,
   inner 0.5×0.14) so a stingy model answer can't shrink the text into a corner.
-- **Bbox model:** `google:gemini-3.5-flash` (fallback `google:gemini-2.5-flash`
-  if the unlisted id errors).
+- **Bbox model:** `google:gemini-3.1-flash-lite` (cost-efficient, vision + JSON;
+  on any failure `PlaceText` falls back to a fixed default box).
 
 ## 1. Pipeline shape & data flow
 
@@ -103,7 +103,7 @@ prompt is instructed to keep text inside this inset; fixed layouts respect it.
 ## 3. Bounding-box AI step — `PlaceText` action
 
 A Jido action calling
-`ReqLLM.generate_object("google:gemini-3.5-flash", messages, schema, opts)` with
+`ReqLLM.generate_object("google:gemini-3.1-flash-lite", messages, schema, opts)` with
 the **print-size image** + the page text.
 
 Structured output schema:
