@@ -25,7 +25,9 @@ defmodule CircleStory.Books.PromptBuilder do
                        one or more CHARACTERS prompts. You may also receive reference images for the scene \
                        and characters. Your job is to compose all of these prompts and images into a well \
                        designed page for a book. IMPORTANT: Generate a full-bleed illustration that fills the entire image \
-                       edge to edge. Do not render any text. Do not leave blank or white areas.
+                       edge to edge, with no white borders. Compose with the main subject placed off-center toward one \
+                       side or corner — never dead center — leaving the opposite area calm and uncluttered with soft, \
+                       simple background washes and open negative space. Keep backgrounds clean and unbusy. Do not render any text.
                        """
                        |> String.trim()
 

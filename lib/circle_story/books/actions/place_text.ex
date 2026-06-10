@@ -124,8 +124,8 @@ defmodule CircleStory.Books.Actions.PlaceText do
   defp mode_clauses(:inner) do
     {
       "This is the story text for the page.",
-      "Choose a box large enough for comfortable, easily readable text — typically spanning a wide portion of an open area of the art.",
-      "Because the two-page spread folds down the vertical center, avoid placing text that crosses the vertical midline of the image.\n\n"
+      "Place the text in ONE corner region of the page — upper-left, lower-left, upper-right, or lower-right — choosing the calmest, least-busy area of the art (open sky, a soft background wash, empty negative space). Keep the box within that single quadrant: do NOT span the full width and do NOT place it in the center. Make it comfortably sized for readable text.",
+      "The two-page spread folds down the vertical center, so the box must stay entirely on one side of the midline — left half (xmax at most 480) OR right half (xmin at least 520) — never crossing it.\n\n"
     }
   end
 end
