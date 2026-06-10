@@ -48,7 +48,10 @@ defmodule CircleStory.Books.Composition do
 
     with {:ok, box} <- placement(raw, fitted, text, :inner, opts) do
       region = Layout.inner_region()
-      rect = Layout.denormalize(box.bounding_box, region, min_w_frac: 0.5, min_h_frac: 0.14)
+      # Gentle floor (smaller than the cover title): respect a good AI box, only
+      # rescue a degenerate one. Body font size is capped separately in the
+      # component, so a slightly larger box no longer means oversized text.
+      rect = Layout.denormalize(box.bounding_box, region, min_w_frac: 0.3, min_h_frac: 0.1)
       color = fitted |> Luminance.pick_for_region(rect) |> Luminance.hex()
 
       html =

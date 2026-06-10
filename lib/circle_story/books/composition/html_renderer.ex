@@ -12,7 +12,8 @@ defmodule CircleStory.Books.Composition.HtmlRenderer do
   function fitOne(box){
     var inner = box.querySelector('.fit-inner');
     if(!inner){return;}
-    var lo = 8, hi = 400;
+    var lo = parseFloat(box.getAttribute('data-min-font')) || 8;
+    var hi = parseFloat(box.getAttribute('data-max-font')) || 400;
     for(var i = 0; i < 22; i++){
       var mid = (lo + hi) / 2;
       inner.style.fontSize = mid + 'px';

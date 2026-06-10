@@ -21,6 +21,14 @@ defmodule CircleStory.Books.PageComponents do
     "www.circlestorybooks.com"
   ]
 
+  # Autofit font-size bounds (px) per text role. Text is scaled to fill its box
+  # but never larger than the max — keeps body text readable instead of huge.
+  @min_font 24
+  @max_font_title 360
+  @max_font_body 64
+  @max_font_tagline 90
+  @max_font_dedication 120
+
   attr :art_uri, :string, required: true
   attr :text, :string, required: true
   attr :rect, :map, required: true
@@ -30,12 +38,20 @@ defmodule CircleStory.Books.PageComponents do
 
   def inner_spread(assigns) do
     {w, h} = Layout.inner_dims()
-    assigns = assign(assigns, w: w, h: h)
+    assigns = assign(assigns, w: w, h: h, min_font: @min_font, max_font_body: @max_font_body)
 
     ~H"""
     <div style={"position:relative;overflow:hidden;width:#{@w}px;height:#{@h}px;"}>
       <img src={@art_uri} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" />
-      <.fit_text rect={@rect} align={@align} color={@color} font="Nunito" weight="700">
+      <.fit_text
+        rect={@rect}
+        align={@align}
+        color={@color}
+        font="Nunito"
+        weight="700"
+        min_font={@min_font}
+        max_font={@max_font_body}
+      >
         {@text}
       </.fit_text>
       <.debug_box :if={@debug_rect} rect={@debug_rect} />
@@ -59,7 +75,9 @@ defmodule CircleStory.Books.PageComponents do
         half: half,
         radius: radius,
         circle_cx: half + div(w - half, 2),
-        circle_cy: div(h, 2)
+        circle_cy: div(h, 2),
+        min_font: @min_font,
+        max_font_dedication: @max_font_dedication
       )
 
     ~H"""
@@ -70,6 +88,8 @@ defmodule CircleStory.Books.PageComponents do
         color="#3A2E26"
         font="Nunito"
         weight="700"
+        min_font={@min_font}
+        max_font={@max_font_dedication}
       >
         {@text}
       </.fit_text>
@@ -108,7 +128,10 @@ defmodule CircleStory.Books.PageComponents do
         spine: spine,
         back: back,
         circle_r: circle_r,
-        blurb_lines: @blurb_lines
+        blurb_lines: @blurb_lines,
+        min_font: @min_font,
+        max_font_title: @max_font_title,
+        max_font_tagline: @max_font_tagline
       )
 
     ~H"""
@@ -121,6 +144,8 @@ defmodule CircleStory.Books.PageComponents do
         font="Nunito"
         weight="700"
         italic={true}
+        min_font={@min_font}
+        max_font={@max_font_tagline}
       >
         {@tagline}
       </.fit_text>
@@ -146,7 +171,15 @@ defmodule CircleStory.Books.PageComponents do
           src={@art_uri}
           style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"
         />
-        <.fit_text rect={@rect} align={@align} color={@front_color} font="Fredoka" weight="700">
+        <.fit_text
+          rect={@rect}
+          align={@align}
+          color={@front_color}
+          font="Fredoka"
+          weight="700"
+          min_font={@min_font}
+          max_font={@max_font_title}
+        >
           <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@title}</div>
           <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
             by {@author}
@@ -167,12 +200,16 @@ defmodule CircleStory.Books.PageComponents do
   attr :font, :string, required: true
   attr :weight, :string, required: true
   attr :italic, :boolean, default: false
+  attr :min_font, :integer, default: 8
+  attr :max_font, :integer, default: 400
   slot :inner_block, required: true
 
   def fit_text(assigns) do
     ~H"""
     <div
       class="fit-text"
+      data-min-font={@min_font}
+      data-max-font={@max_font}
       style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;"}
     >
       <div

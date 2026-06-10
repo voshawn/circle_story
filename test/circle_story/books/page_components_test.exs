@@ -22,6 +22,8 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ "color:#1A1A1A"
     assert html =~ "fit-text"
     assert html =~ "data:image/png;base64,AAAA"
+    # Body text is capped so the autofit can't blow it up to fill a large box.
+    assert html =~ ~s(data-max-font="64")
   end
 
   test "inner_spread/1 renders the raw-AI debug box only when debug_rect is set" do
