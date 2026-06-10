@@ -26,6 +26,22 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ ~s(data-max-font="64")
   end
 
+  test "inner_spread/1 honors the vertical anchor (valign)" do
+    base = %{
+      art_uri: "data:image/png;base64,AAAA",
+      text: "Hi",
+      rect: %{x: 1, y: 1, w: 1, h: 1},
+      align: :left,
+      color: "#1A1A1A"
+    }
+
+    # Default is vertical-centered.
+    assert render_component(&PageComponents.inner_spread/1, base) =~ "justify-content:center"
+    # AI can anchor to the top to avoid a subject lower in the box.
+    top = render_component(&PageComponents.inner_spread/1, Map.put(base, :valign, :top))
+    assert top =~ "justify-content:flex-start"
+  end
+
   test "inner_spread/1 renders the raw-AI debug box only when debug_rect is set" do
     base = %{
       art_uri: "data:image/png;base64,AAAA",

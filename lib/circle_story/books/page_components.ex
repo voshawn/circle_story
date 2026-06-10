@@ -37,6 +37,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :text, :string, required: true
   attr :rect, :map, required: true
   attr :align, :atom, required: true
+  attr :valign, :atom, default: :middle
   attr :color, :string, required: true
   attr :debug_rect, :map, default: nil, doc: "raw AI box to overlay (debug only)"
 
@@ -50,6 +51,7 @@ defmodule CircleStory.Books.PageComponents do
       <.fit_text
         rect={@rect}
         align={@align}
+        valign={@valign}
         color={@color}
         font="Nunito"
         weight="700"
@@ -107,6 +109,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :art_uri, :string, required: true
   attr :rect, :map, required: true
   attr :align, :atom, required: true
+  attr :valign, :atom, default: :middle
   attr :front_color, :string, required: true
   attr :title, :string, required: true
   attr :author, :string, required: true
@@ -185,6 +188,7 @@ defmodule CircleStory.Books.PageComponents do
         <.fit_text
           rect={@rect}
           align={@align}
+          valign={@valign}
           color={@front_color}
           font="Fredoka"
           weight="700"
@@ -213,6 +217,11 @@ defmodule CircleStory.Books.PageComponents do
   attr :italic, :boolean, default: false
   attr :min_font, :integer, default: 8
   attr :max_font, :integer, default: 400
+
+  attr :valign, :atom,
+    default: :middle,
+    doc: ":top | :middle | :bottom — vertical anchor in the box"
+
   slot :inner_block, required: true
 
   def fit_text(assigns) do
@@ -221,7 +230,7 @@ defmodule CircleStory.Books.PageComponents do
       class="fit-text"
       data-min-font={@min_font}
       data-max-font={@max_font}
-      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;"}
+      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;display:flex;flex-direction:column;justify-content:#{valign_css(@valign)};overflow:hidden;"}
     >
       <div
         class="fit-inner"
@@ -237,6 +246,10 @@ defmodule CircleStory.Books.PageComponents do
   # coordinate space as its sibling text box so it can be compared against the
   # final (red, post-floor/clamp) `.fit-text` outline. Rendered only when a
   # `debug_rect` is supplied by the pipeline (dev only).
+  defp valign_css(:top), do: "flex-start"
+  defp valign_css(:bottom), do: "flex-end"
+  defp valign_css(_), do: "center"
+
   attr :rect, :map, required: true
 
   def debug_box(assigns) do

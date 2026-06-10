@@ -27,7 +27,8 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   @object_schema [
     bounding_box: [type: {:list, :integer}, required: true],
-    text_align: [type: :string, required: true]
+    text_align: [type: :string, required: true],
+    vertical_align: [type: :string, required: true]
   ]
 
   @impl true
@@ -66,23 +67,40 @@ defmodule CircleStory.Books.Actions.PlaceText do
   defp summarize_error({:error, err}), do: inspect(err, limit: 5, printable_limit: 200)
   defp summarize_error(other), do: inspect(other, limit: 5, printable_limit: 200)
 
-  @doc "Validate and normalize a raw object map into `%{bounding_box: [..], text_align: atom}`."
+  @doc """
+  Validate and normalize a raw object map into
+  `%{bounding_box: [..], text_align: atom, vertical_align: atom}`. `text_align`
+  and `vertical_align` default to `:center`/`:middle` when missing/unknown so
+  older cached results without a vertical anchor still load.
+  """
   @spec parse_result(map() | term()) :: {:ok, map()} | {:error, term()}
-  def parse_result(%{"bounding_box" => [a, b, c, d], "text_align" => align})
+  def parse_result(%{"bounding_box" => [a, b, c, d]} = obj)
       when is_integer(a) and is_integer(b) and is_integer(c) and is_integer(d) do
-    {:ok, %{bounding_box: [a, b, c, d], text_align: to_align(align)}}
+    {:ok,
+     %{
+       bounding_box: [a, b, c, d],
+       text_align: to_align(Map.get(obj, "text_align")),
+       vertical_align: to_valign(Map.get(obj, "vertical_align"))
+     }}
   end
 
   def parse_result(other), do: {:error, {:invalid_place_text_result, other}}
 
   @doc "Fallback box when the model output is unusable."
   @spec default_box(:inner | :cover) :: map()
-  def default_box(:inner), do: %{bounding_box: [650, 100, 900, 900], text_align: :center}
-  def default_box(:cover), do: %{bounding_box: [80, 150, 320, 850], text_align: :center}
+  def default_box(:inner),
+    do: %{bounding_box: [650, 100, 900, 900], text_align: :center, vertical_align: :middle}
+
+  def default_box(:cover),
+    do: %{bounding_box: [80, 150, 320, 850], text_align: :center, vertical_align: :middle}
 
   defp to_align("left"), do: :left
   defp to_align("right"), do: :right
   defp to_align(_), do: :center
+
+  defp to_valign("top"), do: :top
+  defp to_valign("bottom"), do: :bottom
+  defp to_valign(_), do: :middle
 
   defp prompt(mode, text) do
     {role_clause, size_clause, fold_clause} = mode_clauses(mode)
@@ -103,9 +121,11 @@ defmodule CircleStory.Books.Actions.PlaceText do
     Return only:
     1) a bounding box in the format [ymin, xmin, ymax, xmax] normalized to a 1000 x 1000 grid.
     2) a text-align recommendation (left, right, or center only).
+    3) a vertical-align recommendation (top, middle, or bottom): anchor the text within \
+    the box toward the calmest, emptiest part — away from faces, heads, and the main subject.
 
     Return JSON only. No additional text. Example of a generous box:
-    {"bounding_box": [80, 120, 360, 880], "text_align": "center"}
+    {"bounding_box": [80, 120, 360, 880], "text_align": "center", "vertical_align": "top"}
 
     TEXT:
     #{text}

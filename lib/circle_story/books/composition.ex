@@ -62,6 +62,7 @@ defmodule CircleStory.Books.Composition do
               text: text,
               rect: rect,
               align: box.text_align,
+              valign: box.vertical_align,
               color: color,
               debug_rect: debug_rect(box.bounding_box, region)
             })
@@ -95,6 +96,7 @@ defmodule CircleStory.Books.Composition do
               art_uri: ImageOps.to_data_uri(front),
               rect: rect,
               align: box.text_align,
+              valign: box.vertical_align,
               front_color: front_color,
               title: book.title,
               author: book.author,
@@ -139,7 +141,8 @@ defmodule CircleStory.Books.Composition do
             cache,
             Jason.encode!(%{
               "bounding_box" => box.bounding_box,
-              "text_align" => Atom.to_string(box.text_align)
+              "text_align" => Atom.to_string(box.text_align),
+              "vertical_align" => Atom.to_string(box.vertical_align)
             })
           )
 
@@ -150,14 +153,23 @@ defmodule CircleStory.Books.Composition do
 
   defp load_cached(path) do
     with {:ok, raw} <- File.read(path),
-         {:ok, %{"bounding_box" => bbox, "text_align" => align}} <- Jason.decode(raw) do
-      {:ok, %{bounding_box: bbox, text_align: align_atom(align)}}
+         {:ok, %{"bounding_box" => bbox} = decoded} <- Jason.decode(raw) do
+      {:ok,
+       %{
+         bounding_box: bbox,
+         text_align: align_atom(Map.get(decoded, "text_align")),
+         vertical_align: valign_atom(Map.get(decoded, "vertical_align"))
+       }}
     end
   end
 
   defp align_atom("left"), do: :left
   defp align_atom("right"), do: :right
   defp align_atom(_), do: :center
+
+  defp valign_atom("top"), do: :top
+  defp valign_atom("bottom"), do: :bottom
+  defp valign_atom(_), do: :middle
 
   defp rgb_css([r, g, b | _]), do: "rgb(#{r},#{g},#{b})"
 
