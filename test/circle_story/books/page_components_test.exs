@@ -24,6 +24,28 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ "data:image/png;base64,AAAA"
   end
 
+  test "inner_spread/1 renders the raw-AI debug box only when debug_rect is set" do
+    base = %{
+      art_uri: "data:image/png;base64,AAAA",
+      text: "Hi",
+      rect: %{x: 1, y: 1, w: 1, h: 1},
+      align: :left,
+      color: "#1A1A1A"
+    }
+
+    refute render_component(&PageComponents.inner_spread/1, base) =~ "dashed #00BFFF"
+
+    html =
+      render_component(
+        &PageComponents.inner_spread/1,
+        Map.put(base, :debug_rect, %{x: 10, y: 20, w: 300, h: 100})
+      )
+
+    assert html =~ "dashed #00BFFF"
+    assert html =~ "left:10px"
+    assert html =~ "AI"
+  end
+
   test "dedication/1 renders cream page, text, and a pink circle" do
     html = render_component(&PageComponents.dedication/1, %{text: "For Ornella."})
 

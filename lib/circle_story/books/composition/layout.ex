@@ -73,6 +73,27 @@ defmodule CircleStory.Books.Composition.Layout do
     %{x: round(cx0), y: round(cy0), w: max(round(cx1 - cx0), 1), h: max(round(cy1 - cy0), 1)}
   end
 
+  @doc """
+  Map a normalized box straight to pixels within `region` with NO safe-inset
+  clamp and NO size floor — the raw model box as a drawable rect. Normalized
+  values are clamped to `0..1000` and inverted coordinates normalized. Intended
+  for debug overlays, not for placing real text.
+  """
+  @spec to_pixels([number()], map()) :: %{x: integer(), y: integer(), w: integer(), h: integer()}
+  def to_pixels([ymin, xmin, ymax, xmax], region) do
+    nx0 = clamp(min(xmin, xmax), 0, 1000)
+    nx1 = clamp(max(xmin, xmax), 0, 1000)
+    ny0 = clamp(min(ymin, ymax), 0, 1000)
+    ny1 = clamp(max(ymin, ymax), 0, 1000)
+
+    %{
+      x: round(region.x + nx0 / 1000 * region.w),
+      y: round(region.y + ny0 / 1000 * region.h),
+      w: max(round((nx1 - nx0) / 1000 * region.w), 1),
+      h: max(round((ny1 - ny0) / 1000 * region.h), 1)
+    }
+  end
+
   # Clamp [lo, hi] into [bound_lo, bound_hi], then grow it (centered on its
   # current center, shifted to stay in bounds) to at least `min_size`, capped by
   # the available span.

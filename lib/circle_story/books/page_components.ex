@@ -26,6 +26,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :rect, :map, required: true
   attr :align, :atom, required: true
   attr :color, :string, required: true
+  attr :debug_rect, :map, default: nil, doc: "raw AI box to overlay (debug only)"
 
   def inner_spread(assigns) do
     {w, h} = Layout.inner_dims()
@@ -37,6 +38,7 @@ defmodule CircleStory.Books.PageComponents do
       <.fit_text rect={@rect} align={@align} color={@color} font="Nunito" weight="700">
         {@text}
       </.fit_text>
+      <.debug_box :if={@debug_rect} rect={@debug_rect} />
     </div>
     """
   end
@@ -87,6 +89,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :tagline, :string, required: true
   attr :fill, :string, required: true
   attr :ink, :string, required: true
+  attr :debug_rect, :map, default: nil, doc: "raw AI box (panel-local) to overlay (debug only)"
 
   def cover(assigns) do
     {w, h} = Layout.cover_dims()
@@ -149,6 +152,7 @@ defmodule CircleStory.Books.PageComponents do
             by {@author}
           </div>
         </.fit_text>
+        <.debug_box :if={@debug_rect} rect={@debug_rect} />
       </div>
     </div>
     """
@@ -177,6 +181,22 @@ defmodule CircleStory.Books.PageComponents do
       >
         {render_slot(@inner_block)}
       </div>
+    </div>
+    """
+  end
+
+  # Debug overlay: the raw AI bounding box (cyan dashed), drawn in the same
+  # coordinate space as its sibling text box so it can be compared against the
+  # final (red, post-floor/clamp) `.fit-text` outline. Rendered only when a
+  # `debug_rect` is supplied by the pipeline (dev only).
+  attr :rect, :map, required: true
+
+  def debug_box(assigns) do
+    ~H"""
+    <div style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;outline:6px dashed #00BFFF;pointer-events:none;"}>
+      <span style="position:absolute;top:0;left:0;background:#00BFFF;color:#000;font:700 28px sans-serif;padding:2px 10px;">
+        AI
+      </span>
     </div>
     """
   end

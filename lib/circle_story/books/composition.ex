@@ -47,12 +47,8 @@ defmodule CircleStory.Books.Composition do
     fitted = ImageOps.fit(raw, w, h)
 
     with {:ok, box} <- placement(raw, fitted, text, :inner, opts) do
-      rect =
-        Layout.denormalize(box.bounding_box, Layout.inner_region(),
-          min_w_frac: 0.5,
-          min_h_frac: 0.14
-        )
-
+      region = Layout.inner_region()
+      rect = Layout.denormalize(box.bounding_box, region, min_w_frac: 0.5, min_h_frac: 0.14)
       color = fitted |> Luminance.pick_for_region(rect) |> Luminance.hex()
 
       html =
@@ -63,7 +59,8 @@ defmodule CircleStory.Books.Composition do
               text: text,
               rect: rect,
               align: box.text_align,
-              color: color
+              color: color,
+              debug_rect: debug_rect(box.bounding_box, region)
             })
           )
         )
@@ -79,13 +76,10 @@ defmodule CircleStory.Books.Composition do
     text = "#{book.title}\n#{book.author}"
 
     with {:ok, box} <- placement(raw, front, text, :cover, opts) do
+      region = Layout.front_region_local()
       # The title is the cover's hero — floor the box so a stingy model answer
       # can't shrink it into a corner.
-      rect =
-        Layout.denormalize(box.bounding_box, Layout.front_region_local(),
-          min_w_frac: 0.55,
-          min_h_frac: 0.22
-        )
+      rect = Layout.denormalize(box.bounding_box, region, min_w_frac: 0.55, min_h_frac: 0.22)
 
       front_color = front |> Luminance.pick_for_region(rect) |> Luminance.hex()
       fill_rgb = ImageOps.softened_average(front)
@@ -103,7 +97,8 @@ defmodule CircleStory.Books.Composition do
               author: book.author,
               tagline: cover.tagline,
               fill: rgb_css(fill_rgb),
-              ink: ink
+              ink: ink,
+              debug_rect: debug_rect(box.bounding_box, region)
             })
           )
         )
@@ -162,6 +157,14 @@ defmodule CircleStory.Books.Composition do
   defp align_atom(_), do: :center
 
   defp rgb_css([r, g, b | _]), do: "rgb(#{r},#{g},#{b})"
+
+  # The raw AI box (no clamp/floor) for the debug overlay, or nil when debugging
+  # is off. Same coordinate space as the page/panel the box belongs to.
+  defp debug_rect(bounding_box, region) do
+    if Application.get_env(:circle_story, :debug_bounding_boxes, false) do
+      Layout.to_pixels(bounding_box, region)
+    end
+  end
 
   # Inject Phoenix.Component change-tracking metadata so components can be called
   # outside of a HEEx template (e.g. from the composition pipeline).
