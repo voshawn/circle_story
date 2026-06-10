@@ -29,6 +29,10 @@ defmodule CircleStory.Books.PageComponents do
   @max_font_tagline 90
   @max_font_dedication 120
 
+  # Spine text (fixed size; runs vertically in the ~113px-wide spine).
+  @spine_title_font 72
+  @spine_author_font 44
+
   attr :art_uri, :string, required: true
   attr :text, :string, required: true
   attr :rect, :map, required: true
@@ -131,7 +135,9 @@ defmodule CircleStory.Books.PageComponents do
         blurb_lines: @blurb_lines,
         min_font: @min_font,
         max_font_title: @max_font_title,
-        max_font_tagline: @max_font_tagline
+        max_font_tagline: @max_font_tagline,
+        spine_title_font: @spine_title_font,
+        spine_author_font: @spine_author_font
       )
 
     ~H"""
@@ -158,10 +164,15 @@ defmodule CircleStory.Books.PageComponents do
         <div :for={line <- @blurb_lines}>{line}</div>
       </div>
 
-      <%!-- SPINE --%>
+      <%!-- SPINE: title in Fredoka (bold), author in Nunito (smaller, normal) --%>
       <div style={"position:absolute;left:#{@spine.x}px;top:0;width:#{@spine.w}px;height:#{@spine.h}px;display:flex;align-items:center;justify-content:center;"}>
-        <div style={"white-space:nowrap;transform:rotate(-90deg);font-family:'Fredoka';font-weight:700;font-size:48px;color:#{@ink};"}>
-          {@title} · {@author}
+        <div style={"white-space:nowrap;transform:rotate(-90deg);display:inline-flex;align-items:baseline;color:#{@ink};"}>
+          <span style={"font-family:'Fredoka';font-weight:700;font-size:#{@spine_title_font}px;"}>
+            {@title}
+          </span>
+          <span style={"font-family:'Nunito';font-weight:400;font-size:#{@spine_author_font}px;margin-left:0.45em;"}>
+            · {@author}
+          </span>
         </div>
       </div>
 
