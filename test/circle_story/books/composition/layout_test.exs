@@ -37,4 +37,36 @@ defmodule CircleStory.Books.Composition.LayoutTest do
     rect = Layout.denormalize([800, 800, 200, 200], %{x: 0, y: 0, w: 1000, h: 1000})
     assert rect == %{x: 200, y: 200, w: 600, h: 600}
   end
+
+  test "denormalize floors a tiny box up to the requested minimum size" do
+    # A stingy top-left box grown to >= 40% width / 30% height of a 1000-region.
+    rect =
+      Layout.denormalize([0, 0, 100, 100], %{x: 0, y: 0, w: 1000, h: 1000},
+        min_w_frac: 0.4,
+        min_h_frac: 0.3
+      )
+
+    assert rect.w >= 400
+    assert rect.h >= 300
+    # Still inside the safe inset.
+    assert rect.x >= 112 and rect.y >= 112
+    assert rect.x + rect.w <= 888 and rect.y + rect.h <= 888
+  end
+
+  test "denormalize leaves a box larger than the minimum unchanged" do
+    rect =
+      Layout.denormalize([200, 200, 800, 800], %{x: 0, y: 0, w: 1000, h: 1000},
+        min_w_frac: 0.4,
+        min_h_frac: 0.3
+      )
+
+    assert rect == %{x: 200, y: 200, w: 600, h: 600}
+  end
+
+  test "denormalize floor is capped by the available safe area" do
+    # Requesting 100% width can't exceed the safe span (1000 - 2*112 = 776).
+    rect = Layout.denormalize([0, 0, 50, 50], %{x: 0, y: 0, w: 1000, h: 1000}, min_w_frac: 1.0)
+    assert rect.x == 112
+    assert rect.x + rect.w == 888
+  end
 end

@@ -73,33 +73,47 @@ defmodule CircleStory.Books.Actions.PlaceText do
   defp to_align(_), do: :center
 
   defp prompt(mode, text) do
-    fold_clause =
-      case mode do
-        :inner ->
-          "Given that the book will be folded in the middle, try to avoid putting " <>
-            "text that crosses the midpoint of the book.\n\n"
-
-        :cover ->
-          ""
-      end
+    {role_clause, size_clause, fold_clause} = mode_clauses(mode)
 
     """
-    You will be given text (including new lines) and an image. Your job is to
-    figure out the best place to put that text to compose a page for a
-    children's book.
+    You will be given text (including new lines) and an image. Choose where to
+    place that text to compose a page for a children's book.
 
-    #{fold_clause}Keep the text inside the central area of the image and away from \
-    the outer ~6% near each edge, since the printer needs a bleed margin.
+    #{role_clause}
+
+    IMPORTANT: the text is scaled to FILL the bounding box you return, so the size
+    of the box directly controls how large the text appears. #{size_clause}
+
+    #{fold_clause}Keep the box inside the central area, away from the outer ~6% \
+    near each edge (the printer needs a bleed margin), and prefer a calm, \
+    uncluttered part of the art.
 
     Return only:
     1) a bounding box in the format [ymin, xmin, ymax, xmax] normalized to a 1000 x 1000 grid.
     2) a text-align recommendation (left, right, or center only).
 
-    Return JSON only. No additional text. Example:
-    {"bounding_box": [150, 680, 480, 950], "text_align": "right"}
+    Return JSON only. No additional text. Example of a generous box:
+    {"bounding_box": [80, 120, 360, 880], "text_align": "center"}
 
     TEXT:
     #{text}
     """
+  end
+
+  # {role_clause, size_clause, fold_clause}
+  defp mode_clauses(:cover) do
+    {
+      "This text is the book TITLE and author line — it is the hero of the cover and must be large and prominent.",
+      "Choose a GENEROUS box: roughly 55-80% of the image width and tall enough for a bold, eye-catching title (about 20-35% of the height). Do not return a small box or tuck it into a corner.",
+      ""
+    }
+  end
+
+  defp mode_clauses(:inner) do
+    {
+      "This is the story text for the page.",
+      "Choose a box large enough for comfortable, easily readable text — typically spanning a wide portion of an open area of the art.",
+      "Because the two-page spread folds down the vertical center, avoid placing text that crosses the vertical midline of the image.\n\n"
+    }
   end
 end

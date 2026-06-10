@@ -36,14 +36,24 @@ defmodule CircleStory.Books.Composition.Layout do
   Map a normalized `[ymin, xmin, ymax, xmax]` box into a pixel rect within
   `region`, clamped so the whole rect stays inside the safe inset. Inverted
   coordinates are normalized.
+
+  ## Options
+
+  Because page text is scaled to *fill* its box, a stingy box from the model
+  produces tiny text. These options floor the box size (as a fraction of the
+  region) so the box grows — centered on its current center, capped by the safe
+  area — to at least the minimum:
+
+    * `:min_w_frac` — minimum width as a fraction of `region.w` (default `0.0`)
+    * `:min_h_frac` — minimum height as a fraction of `region.h` (default `0.0`)
   """
-  @spec denormalize([number()], map()) :: %{
+  @spec denormalize([number()], map(), keyword()) :: %{
           x: integer(),
           y: integer(),
           w: integer(),
           h: integer()
         }
-  def denormalize([ymin, xmin, ymax, xmax], region) do
+  def denormalize([ymin, xmin, ymax, xmax], region, opts \\ []) do
     x0 = region.x + min(xmin, xmax) / 1000 * region.w
     x1 = region.x + max(xmin, xmax) / 1000 * region.w
     y0 = region.y + min(ymin, ymax) / 1000 * region.h
@@ -54,12 +64,36 @@ defmodule CircleStory.Books.Composition.Layout do
     sy0 = region.y + @safe_inset
     sy1 = region.y + region.h - @safe_inset
 
-    cx0 = clamp(x0, sx0, sx1)
-    cx1 = clamp(x1, sx0, sx1)
-    cy0 = clamp(y0, sy0, sy1)
-    cy1 = clamp(y1, sy0, sy1)
+    min_w = Keyword.get(opts, :min_w_frac, 0.0) * region.w
+    min_h = Keyword.get(opts, :min_h_frac, 0.0) * region.h
+
+    {cx0, cx1} = clamp_span(x0, x1, sx0, sx1, min_w)
+    {cy0, cy1} = clamp_span(y0, y1, sy0, sy1, min_h)
 
     %{x: round(cx0), y: round(cy0), w: max(round(cx1 - cx0), 1), h: max(round(cy1 - cy0), 1)}
+  end
+
+  # Clamp [lo, hi] into [bound_lo, bound_hi], then grow it (centered on its
+  # current center, shifted to stay in bounds) to at least `min_size`, capped by
+  # the available span.
+  defp clamp_span(lo, hi, bound_lo, bound_hi, min_size) do
+    lo = clamp(lo, bound_lo, bound_hi)
+    hi = clamp(hi, bound_lo, bound_hi)
+    size = hi - lo
+    target = min_size |> min(bound_hi - bound_lo) |> max(size)
+
+    if target <= size do
+      {lo, hi}
+    else
+      center = (lo + hi) / 2
+      half = target / 2
+
+      cond do
+        center - half < bound_lo -> {bound_lo, bound_lo + target}
+        center + half > bound_hi -> {bound_hi - target, bound_hi}
+        true -> {center - half, center + half}
+      end
+    end
   end
 
   defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)

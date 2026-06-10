@@ -47,7 +47,12 @@ defmodule CircleStory.Books.Composition do
     fitted = ImageOps.fit(raw, w, h)
 
     with {:ok, box} <- placement(raw, fitted, text, :inner, opts) do
-      rect = Layout.denormalize(box.bounding_box, Layout.inner_region())
+      rect =
+        Layout.denormalize(box.bounding_box, Layout.inner_region(),
+          min_w_frac: 0.5,
+          min_h_frac: 0.14
+        )
+
       color = fitted |> Luminance.pick_for_region(rect) |> Luminance.hex()
 
       html =
@@ -74,7 +79,14 @@ defmodule CircleStory.Books.Composition do
     text = "#{book.title}\n#{book.author}"
 
     with {:ok, box} <- placement(raw, front, text, :cover, opts) do
-      rect = Layout.denormalize(box.bounding_box, Layout.front_region_local())
+      # The title is the cover's hero — floor the box so a stingy model answer
+      # can't shrink it into a corner.
+      rect =
+        Layout.denormalize(box.bounding_box, Layout.front_region_local(),
+          min_w_frac: 0.55,
+          min_h_frac: 0.22
+        )
+
       front_color = front |> Luminance.pick_for_region(rect) |> Luminance.hex()
       fill_rgb = ImageOps.softened_average(front)
       ink = fill_rgb |> Luminance.color_for() |> Luminance.hex()
