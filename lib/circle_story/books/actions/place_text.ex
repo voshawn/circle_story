@@ -16,6 +16,8 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   require Logger
 
+  alias ReqLLM.Message.ContentPart
+
   # Gemini 3.x flash is used for vision + structured JSON output. If this id is
   # ever rejected, fall back to "google:gemini-2.5-flash". On any failure `run/2`
   # returns `default_box/1`, so a bad model id degrades to a fixed box rather than
@@ -29,14 +31,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   @impl true
   def run(%{image_png: png, text: text, mode: mode}, _context) do
+    # Build the message with ReqLLM ContentPart structs. Plain maps like
+    # `%{type: "image_url", ...}` are silently dropped by `Context.normalize/2`,
+    # which would send the model an empty message (and a garbage box).
     messages = [
-      %{
-        role: "user",
-        content: [
-          %{type: "text", text: prompt(mode, text)},
-          %{type: "image_url", image_url: %{url: "data:image/png;base64,#{Base.encode64(png)}"}}
-        ]
-      }
+      ReqLLM.Context.user([
+        ContentPart.text(prompt(mode, text)),
+        ContentPart.image(png, "image/png")
+      ])
     ]
 
     with {:ok, response} <- ReqLLM.generate_object(@model, messages, @object_schema),
