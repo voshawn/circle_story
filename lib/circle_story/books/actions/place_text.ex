@@ -23,15 +23,22 @@ defmodule CircleStory.Books.Actions.PlaceText do
   # fixed box rather than crashing — watch the Logger warning to catch it.
   @model "google:gemini-3.1-flash-lite"
 
+  @object_schema [
+    bounding_box: [type: {:list, :integer}, required: true],
+    text_align: [type: :string, required: true],
+    vertical_align: [type: :string, required: true]
+  ]
+
   # Thinking level for the placement reasoning (:minimal | :low | :medium | :high).
   #
-  # NOTE: we use `generate_text` (not `generate_object`) on purpose. req_llm's
-  # structured-output path forces `responseMimeType: application/json`, which
-  # conflicts with thinking — Gemini returns the thought *summary* as the body and
-  # no JSON, so the object can't be parsed (breaks at :medium/:high). With
-  # `generate_text`, the thought lands in a separate `:thinking` part and
-  # `Response.text/1` returns only the answer, which we JSON-decode ourselves —
-  # so any thinking level works.
+  # REQUIRES a req_llm that disables `includeThoughts` for the `:object` operation
+  # (agentjido/req_llm#762). Until that's merged + released, the vendored dep is
+  # patched locally; on a fresh `mix deps.get` it reverts, so repoint `mix.exs` at
+  # the fork or wait for the release. Stock req_llm hardcodes `includeThoughts:
+  # true`, which conflicts with structured output (`responseMimeType:
+  # application/json`): at :medium/:high Gemini returns the thought *summary* as
+  # the body and no JSON, so the object can't be parsed. With the fix, the model
+  # reasons internally and still returns a schema-validated object.
   @thinking_level :medium
 
   @impl true
@@ -47,9 +54,10 @@ defmodule CircleStory.Books.Actions.PlaceText do
     ]
 
     with {:ok, response} <-
-           ReqLLM.generate_text(@model, messages, google_thinking_level: @thinking_level),
-         body when is_binary(body) <- ReqLLM.Response.text(response),
-         {:ok, object} <- decode_json(body),
+           ReqLLM.generate_object(@model, messages, @object_schema,
+             google_thinking_level: @thinking_level
+           ),
+         object when is_map(object) <- ReqLLM.Response.object(response),
          {:ok, result} <- parse_result(object) do
       Logger.info(
         "PlaceText[#{mode}] model=#{@model} thinking=#{@thinking_level} parsed=#{inspect(result)}"
@@ -64,16 +72,6 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
         {:ok, default_box(mode)}
     end
-  end
-
-  # The model is told to return JSON only, but defensively strip a ```json fence.
-  defp decode_json(body) do
-    body
-    |> String.trim()
-    |> String.replace(~r/\A```(?:json)?\s*/i, "")
-    |> String.replace(~r/\s*```\z/, "")
-    |> String.trim()
-    |> Jason.decode()
   end
 
   # Concise error summary for logs — avoids dumping the full request body (which
