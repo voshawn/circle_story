@@ -25,7 +25,9 @@ defmodule CircleStory.Books.PromptBuilder do
                        one or more CHARACTERS prompts. You may also receive reference images for the scene \
                        and characters. Your job is to compose all of these prompts and images into a well \
                        designed page for a book. IMPORTANT: Generate a full-bleed illustration that fills the entire image \
-                       edge to edge. Do not render any text. Do not leave blank or white areas.
+                       edge to edge, with no white borders. Compose with the main subject placed off-center toward one \
+                       side or corner — never dead center — leaving the opposite area calm and uncluttered with soft, \
+                       simple background washes and open negative space. Keep backgrounds clean and unbusy. Do not render any text.
                        """
                        |> String.trim()
 
@@ -46,12 +48,13 @@ defmodule CircleStory.Books.PromptBuilder do
                        and gently magical — like a modern classic. Avoid: Photorealism, 3D rendering, anime, \
                        sharp digital lines, neon colors, busy backgrounds, generic AI "storybook" aesthetic, \
                        paper texture, canvas texture, grainy or rough surfaces, visible brushstrokes, \
-                       scanned-art look. Do not include any story text in the artwork. Text is only acceptable \
-                       on objects in the image. </MASTER STYLE> You will be provided with a SCENE prompt and \
-                       CHARACTER prompts. Compose a compelling front cover image. IMPORTANT: The book title \
-                       and author name will be overlaid on this image — leave clear space at the top or bottom \
-                       for text overlay. Design with a strong focal point featuring the main character, with \
-                       an inviting, eye-catching composition suitable for a children's board book cover.
+                       scanned-art look. </MASTER STYLE> You will be provided with a SCENE prompt and \
+                       CHARACTER prompts. Compose a compelling front cover image. IMPORTANT: Do not render \
+                       any text, letters, words, or typography anywhere in the image — no title, no author \
+                       name, no labels of any kind. The book title and author name will be overlaid \
+                       separately in post-production. Leave clear space at the top for text overlay. Design \
+                       with a strong focal point featuring the main character, with an inviting, eye-catching \
+                       composition suitable for a children's board book cover.
                        """
                        |> String.trim()
 

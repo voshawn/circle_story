@@ -50,3 +50,8 @@ npm-debug.log
 
 # macOS
 .DS_Store
+
+# Superpowers brainstorm visual companion
+.superpowers/
+/priv/generated_images/*.bbox.json
+/priv/print_ready/

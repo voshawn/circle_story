@@ -68,6 +68,10 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# When true, rendered pages outline each text bounding box in red — a debug aid
+# for tuning AI placement. Off by default; enabled in dev (see dev.exs).
+config :circle_story, :debug_bounding_boxes, false
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

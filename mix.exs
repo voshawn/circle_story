@@ -42,6 +42,8 @@ defmodule CircleStory.MixProject do
     [
       {:jido_ai, "~> 2.0"},
       {:jido, "~> 2.0"},
+      {:image, "~> 0.68"},
+      {:chromic_pdf, "~> 1.17"},
       {:phoenix, "~> 1.8.1"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
