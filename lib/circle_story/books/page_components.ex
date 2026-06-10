@@ -160,7 +160,7 @@ defmodule CircleStory.Books.PageComponents do
       <div style={"position:absolute;left:#{div(@back.w, 2) - @circle_r}px;top:#{div(@back.h, 2) - @circle_r}px;width:#{2 * @circle_r}px;height:#{2 * @circle_r}px;border-radius:50%;background:pink;"}>
       </div>
 
-      <div style={"position:absolute;left:#{@inset}px;bottom:#{@inset}px;font-family:'Nunito';font-weight:700;font-size:44px;line-height:1.4;color:#{@ink};text-align:left;"}>
+      <div style={"position:absolute;left:#{@inset}px;bottom:#{@inset}px;font-family:'Nunito';font-weight:400;font-size:44px;line-height:1.4;color:#{@ink};text-align:left;"}>
         <div :for={line <- @blurb_lines}>{line}</div>
       </div>
 
