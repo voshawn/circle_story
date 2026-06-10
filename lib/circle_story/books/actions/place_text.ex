@@ -43,7 +43,8 @@ defmodule CircleStory.Books.Actions.PlaceText do
       ])
     ]
 
-    with {:ok, response} <- ReqLLM.generate_object(@model, messages, @object_schema),
+    with {:ok, response} <-
+           ReqLLM.generate_object(@model, messages, @object_schema, google_thinking_level: :low),
          object when is_map(object) <- ReqLLM.Response.object(response),
          {:ok, result} <- parse_result(object) do
       Logger.info(
@@ -111,18 +112,25 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
     #{role_clause}
 
-    IMPORTANT: the text is scaled to FILL the bounding box you return, so the size
-    of the box directly controls how large the text appears. #{size_clause}
+     #{size_clause}
 
-    #{fold_clause}Keep the box inside the central area, away from the outer ~6% \
+    #{fold_clause}
+
+    Keep the box inside the central area, away from the outer ~5% \
     near each edge (the printer needs a bleed margin), and prefer a calm, \
     uncluttered part of the art.
 
     Return only:
     1) a bounding box in the format [ymin, xmin, ymax, xmax] normalized to a 1000 x 1000 grid.
     2) a text-align recommendation (left, right, or center only).
-    3) a vertical-align recommendation (top, middle, or bottom): anchor the text within \
-    the box toward the calmest, emptiest part — away from faces, heads, and the main subject.
+    3) a vertical-align recommendation (top, middle, or bottom).
+
+    For images that are more cluttered or busy, anchor the text within the box \
+    toward the calmest, emptiest part — away from faces, heads, and the main subject.
+
+    For images that have more empty space, anchor the text in a space that will balance out \
+    the overall composition of the image. 
+
 
     Return JSON only. No additional text. Example of a generous box:
     {"bounding_box": [80, 120, 360, 880], "text_align": "center", "vertical_align": "top"}
