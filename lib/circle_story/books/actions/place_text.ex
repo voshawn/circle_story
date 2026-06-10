@@ -51,10 +51,19 @@ defmodule CircleStory.Books.Actions.PlaceText do
       {:ok, result}
     else
       other ->
-        Logger.warning("PlaceText[#{mode}] falling back to default box: #{inspect(other)}")
+        Logger.warning(
+          "PlaceText[#{mode}] falling back to default box: #{summarize_error(other)}"
+        )
+
         {:ok, default_box(mode)}
     end
   end
+
+  # Concise error summary for logs — avoids dumping the full request body (which
+  # includes the base64 image) on API errors like a 503.
+  defp summarize_error({:error, %{reason: reason}}) when is_binary(reason), do: reason
+  defp summarize_error({:error, err}), do: inspect(err, limit: 5, printable_limit: 200)
+  defp summarize_error(other), do: inspect(other, limit: 5, printable_limit: 200)
 
   @doc "Validate and normalize a raw object map into `%{bounding_box: [..], text_align: atom}`."
   @spec parse_result(map() | term()) :: {:ok, map()} | {:error, term()}
