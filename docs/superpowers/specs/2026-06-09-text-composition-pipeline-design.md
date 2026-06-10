@@ -44,7 +44,11 @@ existing `CircleStory.Books.Generator` so `generate_cover/1` and
   system install) fill-crops the raw art to print dims and samples region
   luminance. Not used for text or final compositing.
 - **Autofit:** handled in-browser by a small text-fit script (shrinks each text
-  block to fit its box) — not a server-side font-size loop.
+  block to fit its box) — not a server-side font-size loop. Because text fills
+  its box, box size controls text size: the `PlaceText` prompt asks for a
+  generous box (the cover title is the "hero"), and `Layout.denormalize/3`
+  floors the box up to a minimum (`:min_w_frac`/`:min_h_frac`; cover 0.55×0.22,
+  inner 0.5×0.14) so a stingy model answer can't shrink the text into a corner.
 - **Bbox model:** `google:gemini-3.5-flash` (fallback `google:gemini-2.5-flash`
   if the unlisted id errors).
 
