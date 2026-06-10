@@ -1,5 +1,6 @@
 defmodule CircleStory.Books.Composition.HtmlRendererTest do
-  use ExUnit.Case, async: true
+  # async: false — the debug-toggle test mutates application env.
+  use ExUnit.Case, async: false
 
   alias CircleStory.Books.Composition.HtmlRenderer
 
@@ -24,6 +25,17 @@ defmodule CircleStory.Books.Composition.HtmlRendererTest do
     assert doc =~ "data-ready"
     assert doc =~ "document.fonts.ready"
     assert doc =~ "margin:0"
+  end
+
+  test "document/1 toggles the red debug outline via :debug_bounding_boxes" do
+    prev = Application.get_env(:circle_story, :debug_bounding_boxes, false)
+    on_exit(fn -> Application.put_env(:circle_story, :debug_bounding_boxes, prev) end)
+
+    Application.put_env(:circle_story, :debug_bounding_boxes, false)
+    refute HtmlRenderer.document("<div>P</div>") =~ "outline: 6px solid red"
+
+    Application.put_env(:circle_story, :debug_bounding_boxes, true)
+    assert HtmlRenderer.document("<div>P</div>") =~ ".fit-text { outline: 6px solid red"
   end
 
   @tag :integration

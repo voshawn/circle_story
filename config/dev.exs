@@ -26,6 +26,9 @@ config :circle_story, CircleStoryWeb.Endpoint,
     tailwind: {Tailwind, :install_and_run, [:circle_story, ~w(--watch)]}
   ]
 
+# Outline text bounding boxes in red on rendered pages to debug AI placement.
+config :circle_story, :debug_bounding_boxes, true
+
 # ## SSL Support
 #
 # In order to use HTTPS in development, a self-signed
