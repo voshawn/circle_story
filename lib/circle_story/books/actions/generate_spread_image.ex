@@ -9,18 +9,18 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     ]
 
   alias CircleStory.Books.{Character, PromptBuilder}
-
-  @model "google:gemini-3.1-flash-image"
+  alias CircleStory.Books.Actions.GeminiImage
 
   @impl true
   def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
     system_prompt = PromptBuilder.system_prompt(spread_type)
     user_msg = PromptBuilder.user_message(spread, characters)
     ref_image_parts = load_reference_images(characters)
-    messages = build_messages(user_msg, ref_image_parts)
+    messages = GeminiImage.build_messages(user_msg, ref_image_parts)
 
-    with {:ok, response} <- call_llm(system_prompt, messages, aspect_ratio(spread_type)),
-         {:ok, image_binary} <- extract_image(response),
+    with {:ok, response} <-
+           GeminiImage.generate(system_prompt, messages, aspect_ratio(spread_type)),
+         {:ok, image_binary} <- GeminiImage.extract_image(response),
          {:ok, path} <- save_image(image_binary, spread, spread_type) do
       {:ok, %{image_path: path}}
     end
@@ -31,45 +31,14 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
     |> Enum.filter(& &1.reference_image_path)
     |> Enum.flat_map(fn %Character{reference_image_path: path} ->
       case File.read(path) do
-        {:ok, binary} -> [{binary, mime_type(path)}]
+        {:ok, binary} -> [{binary, GeminiImage.mime_type(path)}]
         {:error, _} -> []
       end
     end)
   end
 
-  defp build_messages(text, []) do
-    [%{role: "user", content: text}]
-  end
-
-  defp build_messages(text, ref_images) do
-    image_parts =
-      Enum.map(ref_images, fn {binary, mime} ->
-        %{type: "image_url", image_url: %{url: "data:#{mime};base64,#{Base.encode64(binary)}"}}
-      end)
-
-    [%{role: "user", content: [%{type: "text", text: text} | image_parts]}]
-  end
-
-  defp call_llm(system_prompt, messages, aspect_ratio) do
-    # System prompt passed as role: "system" message — split_messages_for_gemini
-    # converts it to systemInstruction for the Gemini API.
-    all_messages = [%{role: "system", content: system_prompt} | messages]
-
-    ReqLLM.generate_image(@model, all_messages,
-      aspect_ratio: aspect_ratio,
-      google_thinking_level: :high
-    )
-  end
-
   defp aspect_ratio(:cover), do: "1:1"
   defp aspect_ratio(:inner), do: "16:9"
-
-  defp extract_image(response) do
-    case ReqLLM.Response.image_data(response) do
-      nil -> {:error, "no image data in response: #{inspect(response)}"}
-      data when is_binary(data) -> {:ok, data}
-    end
-  end
 
   defp save_image(binary, spread, spread_type) do
     output_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
@@ -95,15 +64,5 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   defp build_filename(_spread, :cover) do
     ts = System.os_time(:second)
     "cover_front_#{ts}.png"
-  end
-
-  defp mime_type(path) do
-    case Path.extname(path) |> String.downcase() do
-      ".jpg" -> "image/jpeg"
-      ".jpeg" -> "image/jpeg"
-      ".png" -> "image/png"
-      ".webp" -> "image/webp"
-      _ -> "image/jpeg"
-    end
   end
 end

@@ -1,0 +1,57 @@
+defmodule CircleStory.Books.Actions.GeminiImage do
+  @moduledoc """
+  Shared helpers for the Gemini image-generation actions
+  (`GenerateSpreadImage`, `GenerateCharacterReference`): user-message assembly,
+  the model call, response image extraction, and MIME detection.
+  """
+
+  @model "google:gemini-3.1-flash-image"
+
+  @doc "Prepend the system prompt and call the Gemini image model."
+  @spec generate(String.t(), [map()], String.t()) ::
+          {:ok, ReqLLM.Response.t()} | {:error, term()}
+  def generate(system_prompt, messages, aspect_ratio) do
+    # System prompt passed as role: "system" — split_messages_for_gemini
+    # converts it to systemInstruction for the Gemini API.
+    all_messages = [%{role: "system", content: system_prompt} | messages]
+
+    ReqLLM.generate_image(@model, all_messages,
+      aspect_ratio: aspect_ratio,
+      google_thinking_level: :high
+    )
+  end
+
+  @doc "Build the `user` message list: plain text, or text plus image parts."
+  @spec build_messages(String.t(), [{binary(), String.t()}]) :: [map()]
+  def build_messages(text, []), do: [%{role: "user", content: text}]
+
+  def build_messages(text, image_parts) do
+    parts =
+      Enum.map(image_parts, fn {binary, mime} ->
+        %{type: "image_url", image_url: %{url: "data:#{mime};base64,#{Base.encode64(binary)}"}}
+      end)
+
+    [%{role: "user", content: [%{type: "text", text: text} | parts]}]
+  end
+
+  @doc "Extract the generated image binary from a ReqLLM response."
+  @spec extract_image(ReqLLM.Response.t()) :: {:ok, binary()} | {:error, term()}
+  def extract_image(response) do
+    case ReqLLM.Response.image_data(response) do
+      nil -> {:error, "no image data in response: #{inspect(response)}"}
+      data when is_binary(data) -> {:ok, data}
+    end
+  end
+
+  @doc "Guess the MIME type from a file extension (defaults to `image/jpeg`)."
+  @spec mime_type(Path.t()) :: String.t()
+  def mime_type(path) do
+    case path |> Path.extname() |> String.downcase() do
+      ".jpg" -> "image/jpeg"
+      ".jpeg" -> "image/jpeg"
+      ".png" -> "image/png"
+      ".webp" -> "image/webp"
+      _ -> "image/jpeg"
+    end
+  end
+end
