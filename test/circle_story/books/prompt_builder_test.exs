@@ -21,6 +21,19 @@ defmodule CircleStory.Books.PromptBuilderTest do
     test ":inner and :cover prompts are different" do
       refute PromptBuilder.system_prompt(:inner) == PromptBuilder.system_prompt(:cover)
     end
+
+    test "returns a character portrait prompt for :character" do
+      prompt = PromptBuilder.system_prompt(:character)
+      assert is_binary(prompt)
+      assert prompt =~ "MASTER STYLE"
+      assert prompt =~ "reference portrait"
+      assert prompt =~ "plain"
+    end
+
+    test ":inner still contains the shared master style after extraction" do
+      assert PromptBuilder.system_prompt(:inner) =~
+               "Antoine de Saint-Exupéry's The Little Prince"
+    end
   end
 
   describe "user_message/2" do
@@ -81,6 +94,16 @@ defmodule CircleStory.Books.PromptBuilderTest do
       assert msg =~ "<SCENE>"
       assert msg =~ "A sun-drenched meadow scene"
       assert msg =~ "</SCENE>"
+    end
+  end
+
+  describe "character_message/1" do
+    test "wraps a single character's prompt in an uppercased name tag" do
+      character = %Character{name: "Ornella", image_prompt: "A joyful baby girl."}
+      msg = PromptBuilder.character_message(character)
+      assert msg =~ "<ORNELLA>"
+      assert msg =~ "A joyful baby girl."
+      assert msg =~ "</ORNELLA>"
     end
   end
 end
