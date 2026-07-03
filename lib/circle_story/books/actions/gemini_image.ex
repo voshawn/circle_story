@@ -43,6 +43,23 @@ defmodule CircleStory.Books.Actions.GeminiImage do
     end
   end
 
+  @doc "Write image binary to priv/generated_images/<filename>; returns {:ok, path}."
+  @spec save(binary(), String.t()) :: {:ok, Path.t()} | {:error, term()}
+  def save(binary, filename) do
+    output_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+
+    with :ok <- File.mkdir_p(output_dir) do
+      path = Path.join(output_dir, filename)
+
+      case File.write(path, binary) do
+        :ok -> {:ok, path}
+        {:error, reason} -> {:error, "failed to write image: #{inspect(reason)}"}
+      end
+    else
+      {:error, reason} -> {:error, "failed to create output directory: #{inspect(reason)}"}
+    end
+  end
+
   @doc "Guess the MIME type from a file extension (defaults to `image/jpeg`)."
   @spec mime_type(Path.t()) :: String.t()
   def mime_type(path) do

@@ -78,6 +78,8 @@ defmodule CircleStory.Books.PromptBuilder do
   def system_prompt(:character), do: @character_system_prompt
 
   @spec user_message(struct(), [Character.t()]) :: String.t()
+  def user_message(spread, []), do: "<SCENE>\n#{spread.image_prompt}\n</SCENE>"
+
   def user_message(spread, characters) do
     scene_block = "<SCENE>\n#{spread.image_prompt}\n</SCENE>"
     chars_inner = build_characters_inner(characters)
@@ -86,17 +88,17 @@ defmodule CircleStory.Books.PromptBuilder do
 
   @doc "The single-character block used when generating a reference portrait."
   @spec character_message(Character.t()) :: String.t()
-  def character_message(%Character{name: name, image_prompt: prompt}) do
-    tag = String.upcase(name)
-    "<#{tag}>\n#{prompt}\n</#{tag}>"
-  end
+  def character_message(%Character{name: name, image_prompt: prompt}),
+    do: char_block(name, prompt)
 
   defp build_characters_inner(characters) do
     characters
-    |> Enum.map(fn %Character{name: name, image_prompt: prompt} ->
-      tag = String.upcase(name)
-      "<#{tag}>\n#{prompt}\n</#{tag}>"
-    end)
+    |> Enum.map(fn %Character{name: name, image_prompt: prompt} -> char_block(name, prompt) end)
     |> Enum.join("\n")
+  end
+
+  defp char_block(name, prompt) do
+    tag = String.upcase(name)
+    "<#{tag}>\n#{prompt}\n</#{tag}>"
   end
 end

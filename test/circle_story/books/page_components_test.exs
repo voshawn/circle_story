@@ -109,6 +109,7 @@ defmodule CircleStory.Books.PageComponentsTest do
 
     assert html =~ "data:image/png;base64,CHAR"
     assert html =~ "object-fit:cover"
+    refute html =~ "background:pink"
   end
 
   test "cover/1 keeps the pink placeholder when no character URI is given" do

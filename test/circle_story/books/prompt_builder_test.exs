@@ -84,6 +84,12 @@ defmodule CircleStory.Books.PromptBuilderTest do
       assert msg =~ "</CHRISTINE>"
     end
 
+    test "omits the CHARACTERS block entirely when no characters are given", %{spread: spread} do
+      msg = PromptBuilder.user_message(spread, [])
+      assert msg =~ "<SCENE>"
+      refute msg =~ "<CHARACTERS>"
+    end
+
     test "works with a CoverSpread too", %{characters: characters} do
       cover = %CoverSpread{
         tagline: "Every day, you choose me.",

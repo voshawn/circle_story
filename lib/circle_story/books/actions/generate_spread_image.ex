@@ -42,19 +42,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   defp aspect_ratio(:inner), do: "16:9"
 
   defp save_image(binary, spread, spread_type) do
-    output_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
-
-    with :ok <- File.mkdir_p(output_dir) do
-      filename = build_filename(spread, spread_type)
-      path = Path.join(output_dir, filename)
-
-      case File.write(path, binary) do
-        :ok -> {:ok, path}
-        {:error, reason} -> {:error, "failed to write image: #{inspect(reason)}"}
-      end
-    else
-      {:error, reason} -> {:error, "failed to create output directory: #{inspect(reason)}"}
-    end
+    GeminiImage.save(binary, build_filename(spread, spread_type))
   end
 
   defp build_filename(%{position: pos}, :inner) do

@@ -27,8 +27,7 @@ defmodule CircleStory.Books.GeneratorTest do
     test "attaches the newest saved reference to the named character", %{book: book, path: path} do
       assert {:ok, updated} = Generator.attach_character_reference(book, "Ornella")
 
-      assert %Character{name: "Ornella", reference_image_path: ^path} =
-               Book.back_cover_character(updated)
+      assert [%Character{name: "Ornella", reference_image_path: ^path}] = updated.characters
     end
 
     test "returns an error for an unknown character name", %{book: book} do
@@ -44,6 +43,16 @@ defmodule CircleStory.Books.GeneratorTest do
 
       assert {:ok, ^book} = Generator.attach_character_reference(book, "Zzz")
     end
+  end
+
+  test "generate_character_reference/2 errors for an unknown character name" do
+    book = %Book{
+      title: "T",
+      author: "A",
+      characters: [%Character{name: "Ornella", image_prompt: "baby"}]
+    }
+
+    assert {:error, _} = Generator.generate_character_reference(book, "Nobody")
   end
 
   describe "inspect_prompt/2 character selection" do

@@ -104,6 +104,20 @@ defmodule CircleStory.Books.CompositionTest do
     assert html =~ "background:pink"
   end
 
+  test "dedication_html/1 falls back to the placeholder when the photo isn't a valid image" do
+    dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+    File.mkdir_p!(dir)
+    bad = Path.join(dir, "not_an_image_#{System.unique_integer([:positive])}.png")
+    File.write!(bad, "this is not a PNG")
+    on_exit(fn -> File.rm(bad) end)
+
+    dedication = %DedicationSpread{text: "For Ornella.", user_image_path: bad}
+
+    assert {:ok, html, _out} = Composition.dedication_html(dedication)
+    assert html =~ "background:pink"
+    refute html =~ "object-fit:cover"
+  end
+
   test "dedication_html/1 embeds the user's photo when user_image_path is set" do
     photo = write_raw("dedication_photo", 512, 512, :pink)
     dedication = %DedicationSpread{text: "For Ornella.", user_image_path: photo}

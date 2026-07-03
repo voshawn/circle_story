@@ -212,7 +212,11 @@ defmodule CircleStory.Books.Composition do
   # files yield nil so the component falls back to the placeholder.
   defp circle_uri(path) when is_binary(path) do
     if File.exists?(path) do
-      path |> ImageOps.fit(@circle_source_px, @circle_source_px) |> ImageOps.to_data_uri()
+      try do
+        path |> ImageOps.fit(@circle_source_px, @circle_source_px) |> ImageOps.to_data_uri()
+      rescue
+        _ -> nil
+      end
     end
   end
 

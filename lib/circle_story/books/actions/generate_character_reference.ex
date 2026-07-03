@@ -43,18 +43,6 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
   end
 
   defp save_image(binary, %Character{name: name}) do
-    output_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
-
-    with :ok <- File.mkdir_p(output_dir) do
-      filename = "#{reference_prefix(name)}#{System.os_time(:second)}.png"
-      path = Path.join(output_dir, filename)
-
-      case File.write(path, binary) do
-        :ok -> {:ok, path}
-        {:error, reason} -> {:error, "failed to write image: #{inspect(reason)}"}
-      end
-    else
-      {:error, reason} -> {:error, "failed to create output directory: #{inspect(reason)}"}
-    end
+    GeminiImage.save(binary, "#{reference_prefix(name)}#{System.os_time(:second)}.png")
   end
 end

@@ -17,6 +17,20 @@ defmodule CircleStory.Books.Actions.GeminiImageTest do
     end
   end
 
+  describe "save/2" do
+    test "writes the binary under priv/generated_images and returns the path" do
+      filename = "gemini_image_save_test_#{System.unique_integer([:positive])}.png"
+
+      on_exit(fn ->
+        File.rm(Path.join([:code.priv_dir(:circle_story), "generated_images", filename]))
+      end)
+
+      assert {:ok, path} = GeminiImage.save("rawbytes", filename)
+      assert Path.basename(path) == filename
+      assert File.read!(path) == "rawbytes"
+    end
+  end
+
   describe "mime_type/1" do
     test "maps known extensions (case-insensitively)" do
       assert GeminiImage.mime_type("a.png") == "image/png"
