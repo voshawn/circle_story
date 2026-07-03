@@ -18,6 +18,7 @@ defmodule CircleStory.Books.Generator do
 
   alias CircleStory.Books.{
     Book,
+    Character,
     CharacterSelector,
     Composition,
     CoverSpread,
@@ -26,6 +27,7 @@ defmodule CircleStory.Books.Generator do
     PromptBuilder
   }
 
+  alias CircleStory.Books.Actions.GenerateCharacterReference
   alias CircleStory.Books.Actions.GenerateSpreadImage
   alias CircleStory.Books.Composition.ImageOps
 
@@ -73,6 +75,27 @@ defmodule CircleStory.Books.Generator do
 
   def compose_dedication(%Book{dedication: nil}), do: {:error, :no_dedication}
 
+  @doc "Generate an AI reference portrait for one character; returns the updated book."
+  @spec generate_character_reference(Book.t(), String.t()) :: {:ok, Book.t()} | {:error, term()}
+  def generate_character_reference(%Book{} = book, name) do
+    with {:ok, character} <- fetch_character(book, name),
+         {:ok, %{image_path: path}} <-
+           GenerateCharacterReference.run(%{character: character}, %{}) do
+      {:ok, put_character_reference(book, name, path)}
+    end
+  end
+
+  @doc "Re-attach the newest saved reference for one character without regenerating."
+  @spec attach_character_reference(Book.t(), String.t()) :: {:ok, Book.t()} | {:error, term()}
+  def attach_character_reference(%Book{} = book, name) do
+    with {:ok, _character} <- fetch_character(book, name) do
+      case ImageOps.latest_raw(GenerateCharacterReference.reference_prefix(name)) do
+        {:ok, path} -> {:ok, put_character_reference(book, name, path)}
+        {:error, :no_raw_art} -> {:ok, book}
+      end
+    end
+  end
+
   @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
   def inspect_prompt(%Book{} = book, :cover) do
@@ -91,6 +114,23 @@ defmodule CircleStory.Books.Generator do
       nil -> {:error, "no spread at position #{position}"}
       %InnerSpread{} = spread -> {:ok, spread}
     end
+  end
+
+  defp fetch_character(%Book{characters: characters}, name) do
+    case Enum.find(characters, &(&1.name == name)) do
+      nil -> {:error, "no character named #{name}"}
+      %Character{} = character -> {:ok, character}
+    end
+  end
+
+  defp put_character_reference(%Book{characters: characters} = book, name, path) do
+    characters =
+      Enum.map(characters, fn
+        %Character{name: ^name} = c -> %{c | reference_image_path: path}
+        c -> c
+      end)
+
+    %{book | characters: characters}
   end
 
   defp put_cover_raw(%Book{cover: %CoverSpread{} = cover} = book, raw) do
