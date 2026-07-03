@@ -12,7 +12,8 @@ is reused two ways:
 
 1. As a conditioning image (alongside the character's text prompt) when
    generating any spread that features the character.
-2. Circle-cropped into the **back cover** (protagonist) and, separately, a
+2. Circle-cropped into the **back cover** (the back-cover character) and,
+   separately, a
    user-uploaded photo circle-cropped into the **dedication** page.
 
 There is no DB or upload UI yet. Everything is driven from IEx via `Generator`
@@ -26,8 +27,8 @@ and the `NanisMagicThread` template, using local files and in-memory structs.
 - **Character selection for spreads:** **Name matching** — inject only the
   characters whose name appears in the spread's `text` or `image_prompt`. No LLM
   call.
-- **Protagonist:** `List.first(book.characters)` for now, behind a
-  `protagonist/1` helper so the rule can change later.
+- **Back cover character:** `List.first(book.characters)` for now, behind a
+  `back_cover_character/1` helper so the rule can change later.
 - **Reference image style:** Single clean portrait/figure on a soft plain
   background, square (`1:1`) for clean circle-cropping. Reused for both spread
   conditioning and the back-cover circle.
@@ -67,7 +68,7 @@ defstruct [:name, :image_prompt, :source_image_path, :reference_image_path]
 No struct change — `user_image_path` already exists; we start rendering it.
 
 ### `Book`
-No new field. Protagonist resolved via a helper (see below).
+No new field. The back-cover character is resolved via a helper (see below).
 
 ## New action: `GenerateCharacterReference`
 
@@ -103,45 +104,57 @@ judgment; do not over-refactor.
   caller does the name matching) — it builds `<CHARACTERS>` blocks only for the
   characters it is given.
 
-## Character selection: `CharacterMatch`
+## Character selection: `CharacterSelector`
 
-New module `lib/circle_story/books/character_match.ex`:
+New module `lib/circle_story/books/character_selector.ex`. This is the **single
+seam** for "which characters belong in this spread." Callers depend only on
+`for_spread/2`; the internal strategy (name matching now, an LLM call later) is
+hidden and swappable without touching any caller.
 
-- `for_spread(spread, characters)` → the subset of `characters` whose `name`
-  appears in `spread.text` **or** `spread.image_prompt`, case-insensitive,
-  matched on word boundaries (so "Asha" does not match inside another word).
+- `for_spread(spread, characters)` → the subset of `characters` that appear in
+  the spread. **Current strategy — name matching:** a character is selected when
+  its `name` appears in `spread.text` **or** `spread.image_prompt`,
+  case-insensitive, matched on word boundaries (so "Asha" does not match inside
+  another word).
 - For the cover (no `text`), match against `cover.image_prompt` only.
 - If nothing matches, returns `[]` — the scene prompt stands alone; no
   characters are injected.
 
 Wiring in `GenerateSpreadImage.run/2`:
-1. Compute `matched = CharacterMatch.for_spread(spread, characters)`.
-2. Pass `matched` to `PromptBuilder.user_message/2` (matched `<CHARACTERS>`
-   blocks only).
-3. Pass `matched` to `load_reference_images/1` (matched reference images only).
+1. Compute `selected = CharacterSelector.for_spread(spread, characters)`.
+2. Pass `selected` to `PromptBuilder.user_message/2` (selected `<CHARACTERS>`
+   blocks only). Every selected character contributes its text prompt.
+3. Pass `selected` to `load_reference_images/1`, which attaches a reference
+   image **only for characters that have a generated `reference_image_path`**.
+   A selected character with no generated reference still contributes its text
+   prompt but no image (existing `Enum.filter(& &1.reference_image_path)`
+   behavior).
 
-`Generator.inspect_prompt/2` uses the same matching so previews stay accurate.
+`Generator.inspect_prompt/2` uses the same selector so previews stay accurate.
 
 ## Generator orchestration
 
-`lib/circle_story/books/generator.ex`:
+`lib/circle_story/books/generator.ex`. Generation is **per character, at your
+discretion** — there is no batch "generate all". A book with no generated
+references simply generates spreads without reference images (the characters'
+text prompts still flow via the selector).
 
 - `generate_character_reference(book, name)` → runs the action for the named
   character, returns `{:ok, updated_book}` with that character's
   `reference_image_path` filled (mirrors the `put_cover_raw` update pattern).
-- `generate_character_references(book)` → generates for all characters, returns
-  the updated book. Convenience for IEx.
-- `attach_character_references(book)` → for each character, re-attach the newest
-  `character_<slug>_*` via `ImageOps.latest_raw/1` without regenerating (mirrors
-  `compose_cover`'s `latest_raw` re-attach). Missing references are left `nil`.
+- `attach_character_reference(book, name)` → re-attach the newest
+  `character_<slug>_*` for one character via `ImageOps.latest_raw/1` without
+  regenerating (mirrors `compose_cover`'s `latest_raw` re-attach). Returns the
+  book unchanged if no such file exists.
 
 `ImageOps.latest_raw/1` already supports arbitrary prefixes, so no change there.
 
-Typical IEx workflow:
+Typical IEx workflow (generate references one at a time, as desired):
 
 ```elixir
 book = CircleStory.Books.Templates.NanisMagicThread.book()
-{:ok, book} = CircleStory.Books.Generator.generate_character_references(book)
+{:ok, book} = CircleStory.Books.Generator.generate_character_reference(book, "Ornella")
+{:ok, book} = CircleStory.Books.Generator.generate_character_reference(book, "Nani")
 {:ok, %{image_path: p}} = CircleStory.Books.Generator.generate_cover(book)
 {:ok, %{image_path: p}} = CircleStory.Books.Generator.generate_spread(book, 1)
 ```
@@ -149,13 +162,13 @@ book = CircleStory.Books.Templates.NanisMagicThread.book()
 ## Rendering the circles
 
 ### Back cover (`PageComponents.cover/1`)
-- Add an optional `protagonist_uri` assign (default `nil`).
+- Add an optional `character_uri` assign (default `nil`).
 - When present: render a circle-cropped `<img>` (`border-radius:50%;
   object-fit:cover;`) in the existing circle geometry.
 - When `nil`: keep the current pink placeholder (graceful fallback).
-- `Composition.cover_html/2` resolves `protagonist(book)` → its
+- `Composition.cover_html/2` resolves `back_cover_character(book)` → its
   `reference_image_path`; when set, `ImageOps.fit(path, d, d)` (square, `d = 2 *
-  circle_r`) then `to_data_uri/1`, passed as `protagonist_uri`.
+  circle_r`) then `to_data_uri/1`, passed as `character_uri`.
 
 ### Dedication (`PageComponents.dedication/1`)
 - Add an optional `dedication_uri` assign (default `nil`); same circle-crop
@@ -163,21 +176,21 @@ book = CircleStory.Books.Templates.NanisMagicThread.book()
 - `Composition.dedication_html/1` resolves `dedication.user_image_path`; when
   set, fit-to-square + `to_data_uri`.
 
-### `protagonist/1` helper
+### `back_cover_character/1` helper
 Lives where the back cover composition can reach it (e.g. `Book` or
 `Composition`). Returns `List.first(book.characters)`; single source of truth for
-the protagonist rule.
+which character appears in the back-cover circle.
 
 ## Testing
 
 Unit tests only (no model calls, consistent with the existing untested
 Gemini-calling actions):
 
-- `CharacterMatch.for_spread/2`: matched subset, case-insensitivity, no-match →
-  `[]`, word-boundary/substring safety.
+- `CharacterSelector.for_spread/2`: selected subset, case-insensitivity,
+  no-match → `[]`, word-boundary/substring safety.
 - `PromptBuilder.user_message/2` builds `<CHARACTERS>` blocks for only the
   characters it is given; `system_prompt(:character)` includes the master style.
-- `protagonist/1` returns the first character.
+- `back_cover_character/1` returns the first character.
 - `PageComponents.cover/1` and `dedication/1` render an `<img>` when the URI is
   present and the pink placeholder when it is `nil`.
 
@@ -188,5 +201,7 @@ Gemini stay IEx-exercised, consistent with `GenerateSpreadImage`.
 
 - Upload UI / LiveView.
 - Persistence / storage buckets (paths are in-memory only for now).
-- Changing the protagonist rule beyond "first character".
+- Changing the `back_cover_character/1` rule beyond "first character".
+- Swapping `CharacterSelector` from name matching to an LLM strategy (the seam
+  exists; the swap itself is future work).
 - Reference character sheets / multi-pose references.
