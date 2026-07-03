@@ -18,6 +18,7 @@ defmodule CircleStory.Books.Generator do
 
   alias CircleStory.Books.{
     Book,
+    CharacterSelector,
     Composition,
     CoverSpread,
     DedicationSpread,
@@ -75,12 +76,14 @@ defmodule CircleStory.Books.Generator do
   @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
   def inspect_prompt(%Book{} = book, :cover) do
-    {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, book.characters)}
+    selected = CharacterSelector.for_spread(book.cover, book.characters)
+    {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, selected)}
   end
 
   def inspect_prompt(%Book{} = book, position) when is_integer(position) do
     spread = Enum.find(book.spreads, &(&1.position == position))
-    {PromptBuilder.system_prompt(:inner), PromptBuilder.user_message(spread, book.characters)}
+    selected = CharacterSelector.for_spread(spread, book.characters)
+    {PromptBuilder.system_prompt(:inner), PromptBuilder.user_message(spread, selected)}
   end
 
   defp fetch_spread(%Book{spreads: spreads}, position) do

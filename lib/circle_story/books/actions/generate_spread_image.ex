@@ -8,14 +8,15 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
       spread_type: [type: {:in, [:inner, :cover]}, required: true]
     ]
 
-  alias CircleStory.Books.{Character, PromptBuilder}
+  alias CircleStory.Books.{Character, CharacterSelector, PromptBuilder}
   alias CircleStory.Books.Actions.GeminiImage
 
   @impl true
   def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
+    selected = CharacterSelector.for_spread(spread, characters)
     system_prompt = PromptBuilder.system_prompt(spread_type)
-    user_msg = PromptBuilder.user_message(spread, characters)
-    ref_image_parts = load_reference_images(characters)
+    user_msg = PromptBuilder.user_message(spread, selected)
+    ref_image_parts = load_reference_images(selected)
     messages = GeminiImage.build_messages(user_msg, ref_image_parts)
 
     with {:ok, response} <-
