@@ -403,19 +403,185 @@ git commit -m "feat: shared master style + character system prompt in PromptBuil
 
 ---
 
-### Task 4: `GenerateCharacterReference` action
+### Task 4: Shared `GeminiImage` helpers + `GenerateCharacterReference` action
+
+Extract the Gemini message/call/extract/MIME helpers shared by both image
+actions into `GeminiImage`, refactor the existing `GenerateSpreadImage` onto it
+(no behavior change), then build the new character-reference action on it.
 
 **Files:**
+- Create: `lib/circle_story/books/actions/gemini_image.ex`
+- Modify: `lib/circle_story/books/actions/generate_spread_image.ex` (refactor onto `GeminiImage`)
 - Create: `lib/circle_story/books/actions/generate_character_reference.ex`
+- Create (test): `test/circle_story/books/actions/gemini_image_test.exs`
 - Create (test): `test/circle_story/books/actions/generate_character_reference_test.exs`
 
 **Interfaces:**
 - Consumes: `PromptBuilder.system_prompt(:character)`, `PromptBuilder.character_message/1`, `%Character{}` (incl. `source_image_path`).
 - Produces:
+  - `GeminiImage.generate(system_prompt :: String.t(), messages :: [map()], aspect_ratio :: String.t()) :: {:ok, ReqLLM.Response.t()} | {:error, term()}`.
+  - `GeminiImage.build_messages(text :: String.t(), image_parts :: [{binary(), String.t()}]) :: [map()]`.
+  - `GeminiImage.extract_image(response) :: {:ok, binary()} | {:error, term()}`.
+  - `GeminiImage.mime_type(path :: Path.t()) :: String.t()`.
   - `GenerateCharacterReference.run(%{character: Character.t()}, map()) :: {:ok, %{image_path: String.t()}} | {:error, term()}`.
   - `GenerateCharacterReference.reference_prefix(name :: String.t()) :: String.t()` — the filename prefix `"character_<slug>_"` (used by the action to name the file and by `Generator` to find the latest).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing `GeminiImage` test**
+
+Create `test/circle_story/books/actions/gemini_image_test.exs`:
+
+```elixir
+defmodule CircleStory.Books.Actions.GeminiImageTest do
+  use ExUnit.Case, async: true
+
+  alias CircleStory.Books.Actions.GeminiImage
+
+  describe "build_messages/2" do
+    test "returns a plain-text user message when there are no images" do
+      assert GeminiImage.build_messages("hello", []) == [%{role: "user", content: "hello"}]
+    end
+
+    test "embeds image parts as base64 data URLs alongside the text" do
+      [msg] = GeminiImage.build_messages("scene", [{"rawbytes", "image/png"}])
+      assert %{role: "user", content: [text_part | image_parts]} = msg
+      assert text_part == %{type: "text", text: "scene"}
+      assert [%{type: "image_url", image_url: %{url: url}}] = image_parts
+      assert url == "data:image/png;base64,#{Base.encode64("rawbytes")}"
+    end
+  end
+
+  describe "mime_type/1" do
+    test "maps known extensions (case-insensitively)" do
+      assert GeminiImage.mime_type("a.png") == "image/png"
+      assert GeminiImage.mime_type("a.JPG") == "image/jpeg"
+      assert GeminiImage.mime_type("a.jpeg") == "image/jpeg"
+      assert GeminiImage.mime_type("a.webp") == "image/webp"
+    end
+
+    test "defaults unknown or missing extensions to image/jpeg" do
+      assert GeminiImage.mime_type("a.gif") == "image/jpeg"
+      assert GeminiImage.mime_type("noext") == "image/jpeg"
+    end
+  end
+end
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `mix test test/circle_story/books/actions/gemini_image_test.exs`
+Expected: FAIL — `GeminiImage` undefined.
+
+- [ ] **Step 3: Implement `GeminiImage`**
+
+Create `lib/circle_story/books/actions/gemini_image.ex`:
+
+```elixir
+defmodule CircleStory.Books.Actions.GeminiImage do
+  @moduledoc """
+  Shared helpers for the Gemini image-generation actions
+  (`GenerateSpreadImage`, `GenerateCharacterReference`): user-message assembly,
+  the model call, response image extraction, and MIME detection.
+  """
+
+  @model "google:gemini-3.1-flash-image"
+
+  @doc "Prepend the system prompt and call the Gemini image model."
+  @spec generate(String.t(), [map()], String.t()) ::
+          {:ok, ReqLLM.Response.t()} | {:error, term()}
+  def generate(system_prompt, messages, aspect_ratio) do
+    # System prompt passed as role: "system" — split_messages_for_gemini
+    # converts it to systemInstruction for the Gemini API.
+    all_messages = [%{role: "system", content: system_prompt} | messages]
+
+    ReqLLM.generate_image(@model, all_messages,
+      aspect_ratio: aspect_ratio,
+      google_thinking_level: :high
+    )
+  end
+
+  @doc "Build the `user` message list: plain text, or text plus image parts."
+  @spec build_messages(String.t(), [{binary(), String.t()}]) :: [map()]
+  def build_messages(text, []), do: [%{role: "user", content: text}]
+
+  def build_messages(text, image_parts) do
+    parts =
+      Enum.map(image_parts, fn {binary, mime} ->
+        %{type: "image_url", image_url: %{url: "data:#{mime};base64,#{Base.encode64(binary)}"}}
+      end)
+
+    [%{role: "user", content: [%{type: "text", text: text} | parts]}]
+  end
+
+  @doc "Extract the generated image binary from a ReqLLM response."
+  @spec extract_image(ReqLLM.Response.t()) :: {:ok, binary()} | {:error, term()}
+  def extract_image(response) do
+    case ReqLLM.Response.image_data(response) do
+      nil -> {:error, "no image data in response: #{inspect(response)}"}
+      data when is_binary(data) -> {:ok, data}
+    end
+  end
+
+  @doc "Guess the MIME type from a file extension (defaults to `image/jpeg`)."
+  @spec mime_type(Path.t()) :: String.t()
+  def mime_type(path) do
+    case path |> Path.extname() |> String.downcase() do
+      ".jpg" -> "image/jpeg"
+      ".jpeg" -> "image/jpeg"
+      ".png" -> "image/png"
+      ".webp" -> "image/webp"
+      _ -> "image/jpeg"
+    end
+  end
+end
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `mix test test/circle_story/books/actions/gemini_image_test.exs`
+Expected: PASS (4 tests).
+
+- [ ] **Step 5: Refactor `GenerateSpreadImage` onto `GeminiImage`**
+
+In `lib/circle_story/books/actions/generate_spread_image.ex`: add `alias CircleStory.Books.Actions.GeminiImage` (below the existing `alias CircleStory.Books.{Character, PromptBuilder}`), delete the `@model` attribute, and delete the private `build_messages/2`, `call_llm/3`, `extract_image/1`, and `mime_type/1` functions. Update `run/2` to call the shared helpers:
+
+```elixir
+  def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
+    system_prompt = PromptBuilder.system_prompt(spread_type)
+    user_msg = PromptBuilder.user_message(spread, characters)
+    ref_image_parts = load_reference_images(characters)
+    messages = GeminiImage.build_messages(user_msg, ref_image_parts)
+
+    with {:ok, response} <- GeminiImage.generate(system_prompt, messages, aspect_ratio(spread_type)),
+         {:ok, image_binary} <- GeminiImage.extract_image(response),
+         {:ok, path} <- save_image(image_binary, spread, spread_type) do
+      {:ok, %{image_path: path}}
+    end
+  end
+```
+
+Update `load_reference_images/1` to use `GeminiImage.mime_type/1`:
+
+```elixir
+  defp load_reference_images(characters) do
+    characters
+    |> Enum.filter(& &1.reference_image_path)
+    |> Enum.flat_map(fn %Character{reference_image_path: path} ->
+      case File.read(path) do
+        {:ok, binary} -> [{binary, GeminiImage.mime_type(path)}]
+        {:error, _} -> []
+      end
+    end)
+  end
+```
+
+Leave `aspect_ratio/1`, `save_image/3`, and `build_filename/2` unchanged.
+
+- [ ] **Step 6: Run the suite to confirm no regression**
+
+Run: `mix test`
+Expected: PASS (existing suite still green; `GenerateSpreadImage` still compiles and behaves identically — the `:integration` test is excluded).
+
+- [ ] **Step 7: Write the failing `GenerateCharacterReference` test**
 
 Create `test/circle_story/books/actions/generate_character_reference_test.exs`:
 
@@ -453,12 +619,12 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReferenceTest do
 end
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 8: Run test to verify it fails**
 
 Run: `mix test test/circle_story/books/actions/generate_character_reference_test.exs`
 Expected: FAIL — `GenerateCharacterReference` undefined. (The `:integration` test is excluded by default, so only the two `reference_prefix/1` tests run.)
 
-- [ ] **Step 3: Implement the action**
+- [ ] **Step 9: Implement the action on `GeminiImage`**
 
 Create `lib/circle_story/books/actions/generate_character_reference.ex`:
 
@@ -472,17 +638,16 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
     ]
 
   alias CircleStory.Books.{Character, PromptBuilder}
-
-  @model "google:gemini-3.1-flash-image"
+  alias CircleStory.Books.Actions.GeminiImage
 
   @impl true
   def run(%{character: %Character{} = character}, _context) do
     system_prompt = PromptBuilder.system_prompt(:character)
     user_msg = PromptBuilder.character_message(character)
-    messages = build_messages(user_msg, source_image_part(character))
+    messages = GeminiImage.build_messages(user_msg, source_image_part(character))
 
-    with {:ok, response} <- call_llm(system_prompt, messages),
-         {:ok, image_binary} <- extract_image(response),
+    with {:ok, response} <- GeminiImage.generate(system_prompt, messages, "1:1"),
+         {:ok, image_binary} <- GeminiImage.extract_image(response),
          {:ok, path} <- save_image(image_binary, character) do
       {:ok, %{image_path: path}}
     end
@@ -503,31 +668,8 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
 
   defp source_image_part(%Character{source_image_path: path}) do
     case File.read(path) do
-      {:ok, binary} -> [{binary, mime_type(path)}]
+      {:ok, binary} -> [{binary, GeminiImage.mime_type(path)}]
       {:error, _} -> []
-    end
-  end
-
-  defp build_messages(text, []), do: [%{role: "user", content: text}]
-
-  defp build_messages(text, image_parts) do
-    parts =
-      Enum.map(image_parts, fn {binary, mime} ->
-        %{type: "image_url", image_url: %{url: "data:#{mime};base64,#{Base.encode64(binary)}"}}
-      end)
-
-    [%{role: "user", content: [%{type: "text", text: text} | parts]}]
-  end
-
-  defp call_llm(system_prompt, messages) do
-    all_messages = [%{role: "system", content: system_prompt} | messages]
-    ReqLLM.generate_image(@model, all_messages, aspect_ratio: "1:1", google_thinking_level: :high)
-  end
-
-  defp extract_image(response) do
-    case ReqLLM.Response.image_data(response) do
-      nil -> {:error, "no image data in response: #{inspect(response)}"}
-      data when is_binary(data) -> {:ok, data}
     end
   end
 
@@ -546,31 +688,21 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
       {:error, reason} -> {:error, "failed to create output directory: #{inspect(reason)}"}
     end
   end
-
-  defp mime_type(path) do
-    case path |> Path.extname() |> String.downcase() do
-      ".jpg" -> "image/jpeg"
-      ".jpeg" -> "image/jpeg"
-      ".png" -> "image/png"
-      ".webp" -> "image/webp"
-      _ -> "image/jpeg"
-    end
-  end
 end
 ```
 
 Note: `slug/1` maps non-alphanumerics to `_` then trims edge underscores so `reference_prefix("Ornella") == "character_ornella_"` and `reference_prefix("Nani Ji!") == "character_nani_ji_"`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 10: Run tests to verify they pass**
 
 Run: `mix test test/circle_story/books/actions/generate_character_reference_test.exs`
 Expected: PASS (2 `reference_prefix/1` tests; the `:integration` test is skipped).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
-git add lib/circle_story/books/actions/generate_character_reference.ex test/circle_story/books/actions/generate_character_reference_test.exs
-git commit -m "feat: GenerateCharacterReference action for style portraits"
+git add lib/circle_story/books/actions/gemini_image.ex lib/circle_story/books/actions/generate_spread_image.ex lib/circle_story/books/actions/generate_character_reference.ex test/circle_story/books/actions/gemini_image_test.exs test/circle_story/books/actions/generate_character_reference_test.exs
+git commit -m "feat: shared GeminiImage helpers + GenerateCharacterReference action"
 ```
 
 ---
@@ -628,7 +760,7 @@ Expected: FAIL — currently every character is included, so `refute user =~ "<N
 
 - [ ] **Step 3: Apply the selector in `GenerateSpreadImage`**
 
-In `lib/circle_story/books/actions/generate_spread_image.ex`, update `run/2` and the alias line. Change the alias:
+In `lib/circle_story/books/actions/generate_spread_image.ex` (already refactored onto `GeminiImage` in Task 4), add `CharacterSelector` to the `CircleStory.Books` alias so it reads:
 
 ```elixir
   alias CircleStory.Books.{Character, CharacterSelector, PromptBuilder}
@@ -642,7 +774,7 @@ Replace the top of `run/2` (the `system_prompt`/`user_msg`/`ref_image_parts` lin
     system_prompt = PromptBuilder.system_prompt(spread_type)
     user_msg = PromptBuilder.user_message(spread, selected)
     ref_image_parts = load_reference_images(selected)
-    messages = build_messages(user_msg, ref_image_parts)
+    messages = GeminiImage.build_messages(user_msg, ref_image_parts)
 ```
 
 (The rest of `run/2` is unchanged. `load_reference_images/1` still filters on `reference_image_path`, so a selected character with no generated reference contributes text only.)
