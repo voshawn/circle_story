@@ -8,7 +8,20 @@ defmodule CircleStory.Books.Composition do
 
   alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance}
   alias CircleStory.Books.Actions.PlaceText
-  alias CircleStory.Books.{Book, CoverSpread, DedicationSpread, InnerSpread, PageComponents}
+
+  alias CircleStory.Books.{
+    Book,
+    Character,
+    CoverSpread,
+    DedicationSpread,
+    InnerSpread,
+    PageComponents
+  }
+
+  # Source resolution for the circle crops (object-fit:cover downstream, so an
+  # exact match to the print diameter isn't required — this is comfortably above
+  # both the back-cover and dedication circle sizes).
+  @circle_source_px 1600
 
   # ----- compose_* (build + screenshot) -----
 
@@ -103,6 +116,7 @@ defmodule CircleStory.Books.Composition do
               tagline: cover.tagline,
               fill: rgb_css(fill_rgb),
               ink: ink,
+              character_uri: back_cover_character_uri(book),
               debug_rect: debug_rect(box.bounding_box, region)
             })
           )
@@ -113,9 +127,13 @@ defmodule CircleStory.Books.Composition do
   end
 
   @spec dedication_html(DedicationSpread.t()) :: {:ok, String.t(), String.t()}
-  def dedication_html(%DedicationSpread{text: text}) do
+  def dedication_html(%DedicationSpread{text: text} = dedication) do
     html =
-      HtmlRenderer.component_to_html(PageComponents.dedication(init_assigns(%{text: text})))
+      HtmlRenderer.component_to_html(
+        PageComponents.dedication(
+          init_assigns(%{text: text, dedication_uri: dedication_uri(dedication)})
+        )
+      )
 
     dir = Path.join(:code.priv_dir(:circle_story), "print_ready")
     File.mkdir_p!(dir)
@@ -180,6 +198,25 @@ defmodule CircleStory.Books.Composition do
       Layout.to_pixels(bounding_box, region)
     end
   end
+
+  defp back_cover_character_uri(%Book{} = book) do
+    case Book.back_cover_character(book) do
+      %Character{reference_image_path: path} -> circle_uri(path)
+      _ -> nil
+    end
+  end
+
+  defp dedication_uri(%DedicationSpread{user_image_path: path}), do: circle_uri(path)
+
+  # Fit an image path to a square and encode it for the circle crop. Nil/missing
+  # files yield nil so the component falls back to the placeholder.
+  defp circle_uri(path) when is_binary(path) do
+    if File.exists?(path) do
+      path |> ImageOps.fit(@circle_source_px, @circle_source_px) |> ImageOps.to_data_uri()
+    end
+  end
+
+  defp circle_uri(_), do: nil
 
   # Inject Phoenix.Component change-tracking metadata so components can be called
   # outside of a HEEx template (e.g. from the composition pipeline).
