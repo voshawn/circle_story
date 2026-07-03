@@ -73,6 +73,61 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ "pink"
   end
 
+  test "dedication/1 renders the user's photo in the circle when given a URI" do
+    html =
+      render_component(&PageComponents.dedication/1, %{
+        text: "For Ornella.",
+        dedication_uri: "data:image/png;base64,DEDI"
+      })
+
+    assert html =~ "border-radius:50%"
+    assert html =~ "data:image/png;base64,DEDI"
+    assert html =~ "object-fit:cover"
+    refute html =~ "background:pink"
+  end
+
+  test "dedication/1 keeps the pink placeholder when no URI is given" do
+    html = render_component(&PageComponents.dedication/1, %{text: "For Ornella."})
+    assert html =~ "background:pink"
+    refute html =~ "<img"
+  end
+
+  test "cover/1 renders the character reference in the back circle when given a URI" do
+    html =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "Nani's Magic Thread",
+        author: "Sidd & Veronika",
+        tagline: "A story of love.",
+        fill: "rgb(180,170,150)",
+        ink: "#1A1A1A",
+        character_uri: "data:image/png;base64,CHAR"
+      })
+
+    assert html =~ "data:image/png;base64,CHAR"
+    assert html =~ "object-fit:cover"
+  end
+
+  test "cover/1 keeps the pink placeholder when no character URI is given" do
+    html =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "T",
+        author: "A",
+        tagline: "t",
+        fill: "rgb(1,2,3)",
+        ink: "#1A1A1A"
+      })
+
+    assert html =~ "background:pink"
+  end
+
   test "cover/1 renders all three panels, title/author, tagline, blurb, spine" do
     html =
       render_component(&PageComponents.cover/1, %{
