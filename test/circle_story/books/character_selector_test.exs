@@ -17,13 +17,22 @@ defmodule CircleStory.Books.CharacterSelectorTest do
   end
 
   test "selects characters named in the image_prompt too" do
-    spread = %InnerSpread{position: 2, text: "A quiet night.", image_prompt: "Nani watches over the house"}
+    spread = %InnerSpread{
+      position: 2,
+      text: "A quiet night.",
+      image_prompt: "Nani watches over the house"
+    }
+
     assert CharacterSelector.for_spread(spread, chars()) |> Enum.map(& &1.name) == ["Nani"]
   end
 
   test "matching is case-insensitive" do
     spread = %InnerSpread{position: 3, text: "meet ORNELLA and nani", image_prompt: "x"}
-    assert CharacterSelector.for_spread(spread, chars()) |> Enum.map(& &1.name) == ["Ornella", "Nani"]
+
+    assert CharacterSelector.for_spread(spread, chars()) |> Enum.map(& &1.name) == [
+             "Ornella",
+             "Nani"
+           ]
   end
 
   test "matches whole words only (no substring false positives)" do
@@ -38,6 +47,10 @@ defmodule CircleStory.Books.CharacterSelectorTest do
 
   test "works with a CoverSpread (image_prompt only, no :text)" do
     cover = %CoverSpread{tagline: "t", image_prompt: "Nani sits with baby Ornella"}
-    assert CharacterSelector.for_spread(cover, chars()) |> Enum.map(& &1.name) == ["Ornella", "Nani"]
+
+    assert CharacterSelector.for_spread(cover, chars()) |> Enum.map(& &1.name) == [
+             "Ornella",
+             "Nani"
+           ]
   end
 end
