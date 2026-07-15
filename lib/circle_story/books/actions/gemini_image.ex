@@ -5,6 +5,8 @@ defmodule CircleStory.Books.Actions.GeminiImage do
   the model call, response image extraction, and MIME detection.
   """
 
+  alias ReqLLM.Message.ContentPart
+
   @model "google:gemini-3.1-flash-image"
 
   @doc "Prepend the system prompt and call the Gemini image model."
@@ -26,12 +28,11 @@ defmodule CircleStory.Books.Actions.GeminiImage do
   def build_messages(text, []), do: [%{role: "user", content: text}]
 
   def build_messages(text, image_parts) do
-    parts =
-      Enum.map(image_parts, fn {binary, mime} ->
-        %{type: "image_url", image_url: %{url: "data:#{mime};base64,#{Base.encode64(binary)}"}}
-      end)
-
-    [%{role: "user", content: [%{type: "text", text: text} | parts]}]
+    # Use ReqLLM.Message.ContentPart structs, not hand-rolled maps: a map with an
+    # atom key but a string value (e.g. %{type: "image_url", ...}) is silently
+    # dropped by ReqLLM.Context.normalize, so the image never reaches the model.
+    parts = Enum.map(image_parts, fn {binary, mime} -> ContentPart.image(binary, mime) end)
+    [%{role: "user", content: [ContentPart.text(text) | parts]}]
   end
 
   @doc "Extract the generated image binary from a ReqLLM response."

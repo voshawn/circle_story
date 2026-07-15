@@ -8,12 +8,19 @@ defmodule CircleStory.Books.Actions.GeminiImageTest do
       assert GeminiImage.build_messages("hello", []) == [%{role: "user", content: "hello"}]
     end
 
-    test "embeds image parts as base64 data URLs alongside the text" do
-      [msg] = GeminiImage.build_messages("scene", [{"rawbytes", "image/png"}])
-      assert %{role: "user", content: [text_part | image_parts]} = msg
-      assert text_part == %{type: "text", text: "scene"}
-      assert [%{type: "image_url", image_url: %{url: url}}] = image_parts
-      assert url == "data:image/png;base64,#{Base.encode64("rawbytes")}"
+    test "image parts survive ReqLLM.Context.normalize as text + image content" do
+      # Regression: the message parts must use a shape ReqLLM.Context.normalize
+      # actually preserves. A mixed atom-key/string-value map (e.g.
+      # %{type: "image_url", ...}) is silently dropped to [], so the image never
+      # reaches the model. Assert at the normalization boundary that matters.
+      messages = GeminiImage.build_messages("scene", [{"rawbytes", "image/png"}])
+      {:ok, ctx} = ReqLLM.Context.normalize(messages, [])
+      [user] = ctx.messages
+
+      types = Enum.map(user.content, & &1.type)
+      assert :text in types
+      assert :image in types or :image_url in types
+      assert Enum.any?(user.content, &(&1.type == :text and &1.text == "scene"))
     end
   end
 
