@@ -24,15 +24,31 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
     end
   end
 
-  @doc "Filename prefix for a character's reference images: `character_<slug>_`."
+  @doc """
+  Filename prefix for a character's reference images: `character_<slug>_<digest>_`.
+
+  The slug is lossy on purpose — it keeps filenames readable ASCII, which avoids
+  the NFC/NFD normalization traps of unicode filenames. That alone is not enough
+  to identify a character: every non-ASCII letter is dropped, so "José"/"Jos"
+  and 李明/小华 slug identically and would share a prefix, and `ImageOps.latest_raw/1`
+  would hand one character's portrait to another. The digest of the exact name
+  restores uniqueness for arbitrary scripts.
+  """
   @spec reference_prefix(String.t()) :: String.t()
-  def reference_prefix(name), do: "character_#{slug(name)}_"
+  def reference_prefix(name), do: "character_#{slug(name)}_#{digest(name)}_"
 
   defp slug(name) do
     name
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9]+/, "_")
     |> String.trim("_")
+  end
+
+  defp digest(name) do
+    :sha256
+    |> :crypto.hash(name)
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 8)
   end
 
   defp source_image_part(%Character{source_image_path: nil}), do: []

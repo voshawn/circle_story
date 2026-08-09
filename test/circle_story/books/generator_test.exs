@@ -92,6 +92,51 @@ defmodule CircleStory.Books.GeneratorTest do
     end
   end
 
+  describe "attach_character_reference/2 non-ASCII names" do
+    setup do
+      dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+      File.mkdir_p!(dir)
+
+      # The readable part of the filename is a lossy ASCII slug: "José" and "Jos"
+      # both slug to "jos", 李明 and 小华 both slug to "". Without a digest of the
+      # exact name these pairs share a prefix outright, and the newest file (the
+      # *other* character's portrait) wins for both.
+      saved =
+        Map.new(
+          [
+            {"José", 1_786_000_100},
+            {"Jos", 1_786_000_500},
+            {"李明", 1_786_000_100},
+            {"小华", 1_786_000_500}
+          ],
+          fn {name, ts} ->
+            path =
+              Path.join(dir, "#{GenerateCharacterReference.reference_prefix(name)}#{ts}.png")
+
+            Image.write!(Image.new!(8, 8, color: :pink), path)
+            {name, path}
+          end
+        )
+
+      on_exit(fn -> Enum.each(saved, fn {_name, path} -> File.rm(path) end) end)
+
+      %{saved: saved}
+    end
+
+    test "each accented and non-Latin name resolves to its own portrait", %{saved: saved} do
+      for {name, path} <- saved do
+        book = %Book{
+          title: "T",
+          author: "A",
+          characters: [%Character{name: name, image_prompt: "x"}]
+        }
+
+        assert {:ok, updated} = Generator.attach_character_reference(book, name)
+        assert [%Character{reference_image_path: ^path}] = updated.characters
+      end
+    end
+  end
+
   test "generate_character_reference/2 errors for an unknown character name" do
     book = %Book{
       title: "T",

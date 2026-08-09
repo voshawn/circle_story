@@ -6,6 +6,8 @@ defmodule CircleStory.Books.Composition do
   refresh the bounding box.
   """
 
+  require Logger
+
   alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance}
   alias CircleStory.Books.Actions.PlaceText
 
@@ -215,8 +217,20 @@ defmodule CircleStory.Books.Composition do
       try do
         path |> ImageOps.fit(@circle_source_px, @circle_source_px) |> ImageOps.to_data_uri()
       rescue
-        _ -> nil
+        error ->
+          Logger.warning(
+            "Composition: circle photo unreadable, rendering the placeholder instead " <>
+              "(#{inspect(error)}): #{path}"
+          )
+
+          nil
       end
+    else
+      Logger.warning(
+        "Composition: circle photo missing, rendering the placeholder instead: #{path}"
+      )
+
+      nil
     end
   end
 
