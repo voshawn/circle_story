@@ -85,13 +85,19 @@ defmodule CircleStory.Books.Generator do
     end
   end
 
-  @doc "Re-attach the newest saved reference for one character without regenerating."
+  @doc """
+  Re-attach the newest saved reference for one character without regenerating.
+
+  Returns `{:error, :no_reference_image}` when nothing is saved for that
+  character: an unchanged `{:ok, book}` would be indistinguishable from a real
+  attach, and the caller would go on to pay for a spread with no conditioning.
+  """
   @spec attach_character_reference(Book.t(), String.t()) :: {:ok, Book.t()} | {:error, term()}
   def attach_character_reference(%Book{} = book, name) do
     with {:ok, _character} <- fetch_character(book, name) do
       case ImageOps.latest_raw(GenerateCharacterReference.reference_prefix(name)) do
         {:ok, path} -> {:ok, put_character_reference(book, name, path)}
-        {:error, :no_raw_art} -> {:ok, book}
+        {:error, :no_raw_art} -> {:error, :no_reference_image}
       end
     end
   end

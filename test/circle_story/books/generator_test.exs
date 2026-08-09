@@ -34,14 +34,61 @@ defmodule CircleStory.Books.GeneratorTest do
       assert {:error, _} = Generator.attach_character_reference(book, "Nobody")
     end
 
-    test "returns the book unchanged when no reference file exists" do
+    test "errors instead of reporting success when no reference file exists" do
       book = %Book{
         title: "T",
         author: "A",
         characters: [%Character{name: "Zzz", image_prompt: "x"}]
       }
 
-      assert {:ok, ^book} = Generator.attach_character_reference(book, "Zzz")
+      assert {:error, :no_reference_image} = Generator.attach_character_reference(book, "Zzz")
+    end
+  end
+
+  describe "attach_character_reference/2 prefix anchoring" do
+    setup do
+      dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+      File.mkdir_p!(dir)
+
+      # "Nani" is a prefix of "Nani Rose". A bare "character_nani_*" glob also
+      # matches "character_nani_rose_*", and because 'r' sorts above every digit
+      # the *wrong* character wins even though Nani's portrait is newer.
+      nani =
+        Path.join(dir, "#{GenerateCharacterReference.reference_prefix("Nani")}1786000500.png")
+
+      rose =
+        Path.join(
+          dir,
+          "#{GenerateCharacterReference.reference_prefix("Nani Rose")}1786000100.png"
+        )
+
+      Image.write!(Image.new!(8, 8, color: :pink), nani)
+      Image.write!(Image.new!(8, 8, color: :blue), rose)
+      on_exit(fn -> Enum.each([nani, rose], &File.rm/1) end)
+
+      %{nani: nani, rose: rose}
+    end
+
+    test "a shorter name does not pick up a longer name's portrait", %{nani: nani} do
+      book = %Book{
+        title: "T",
+        author: "A",
+        characters: [%Character{name: "Nani", image_prompt: "elder"}]
+      }
+
+      assert {:ok, updated} = Generator.attach_character_reference(book, "Nani")
+      assert [%Character{name: "Nani", reference_image_path: ^nani}] = updated.characters
+    end
+
+    test "the longer name still resolves to its own portrait", %{rose: rose} do
+      book = %Book{
+        title: "T",
+        author: "A",
+        characters: [%Character{name: "Nani Rose", image_prompt: "mother"}]
+      }
+
+      assert {:ok, updated} = Generator.attach_character_reference(book, "Nani Rose")
+      assert [%Character{name: "Nani Rose", reference_image_path: ^rose}] = updated.characters
     end
   end
 

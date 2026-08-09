@@ -6,6 +6,8 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
       character: [type: :any, required: true, doc: "Character struct"]
     ]
 
+  require Logger
+
   alias CircleStory.Books.{Character, PromptBuilder}
   alias CircleStory.Books.Actions.GeminiImage
 
@@ -37,8 +39,18 @@ defmodule CircleStory.Books.Actions.GenerateCharacterReference do
 
   defp source_image_part(%Character{source_image_path: path}) do
     case File.read(path) do
-      {:ok, binary} -> [{binary, GeminiImage.mime_type(path)}]
-      {:error, _} -> []
+      {:ok, binary} ->
+        [{binary, GeminiImage.mime_type(path)}]
+
+      {:error, reason} ->
+        # Degrade to text-prompt-only, but say so: otherwise a typo'd path buys a
+        # paid portrait that silently ignores the source photo.
+        Logger.warning(
+          "GenerateCharacterReference: source image unreadable, generating from text only " <>
+            "(#{inspect(reason)}): #{path}"
+        )
+
+        []
     end
   end
 

@@ -21,6 +21,9 @@ defmodule CircleStory.Books.CharacterSelector do
   end
 
   defp mentioned?(haystack, name) do
-    Regex.match?(~r/\b#{Regex.escape(String.downcase(name))}\b/, haystack)
+    # The /u modifier is required: without it \b treats accented letters as
+    # non-word characters, so a name starting or ending in one (José, Zoë) never
+    # matches its own mention and does match a longer word ("zoëtrope").
+    Regex.match?(~r/\b#{Regex.escape(String.downcase(name))}\b/u, haystack)
   end
 end

@@ -36,12 +36,23 @@ defmodule CircleStory.Books.Composition.ImageOps do
   @spec bbox_path(Path.t()) :: Path.t()
   def bbox_path(raw_path), do: Path.rootname(raw_path) <> ".bbox.json"
 
-  @doc "Newest raw-art PNG in priv/generated_images whose basename starts with `prefix`."
+  @doc "Newest raw-art PNG in priv/generated_images named `prefix` followed by a timestamp."
   @spec latest_raw(String.t()) :: {:ok, Path.t()} | {:error, :no_raw_art}
   def latest_raw(prefix) do
     dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
 
-    case dir |> Path.join("#{prefix}*.png") |> Path.wildcard() |> Enum.sort() |> List.last() do
+    # Anchor on the trailing timestamp so a prefix cannot match a longer sibling:
+    # "character_nani_" must not pick up "character_nani_rose_<ts>.png". A bare
+    # glob does, and sorts the wrong name last, so the wrong portrait wins.
+    exact = ~r/^#{Regex.escape(prefix)}\d+\.png$/
+
+    dir
+    |> Path.join("#{prefix}*.png")
+    |> Path.wildcard()
+    |> Enum.filter(&Regex.match?(exact, Path.basename(&1)))
+    |> Enum.sort()
+    |> List.last()
+    |> case do
       nil -> {:error, :no_raw_art}
       path -> {:ok, path}
     end

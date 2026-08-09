@@ -8,6 +8,8 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
       spread_type: [type: {:in, [:inner, :cover]}, required: true]
     ]
 
+  require Logger
+
   alias CircleStory.Books.{Character, CharacterSelector, PromptBuilder}
   alias CircleStory.Books.Actions.GeminiImage
 
@@ -30,10 +32,20 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
   defp load_reference_images(characters) do
     characters
     |> Enum.filter(& &1.reference_image_path)
-    |> Enum.flat_map(fn %Character{reference_image_path: path} ->
+    |> Enum.flat_map(fn %Character{name: name, reference_image_path: path} ->
       case File.read(path) do
-        {:ok, binary} -> [{binary, GeminiImage.mime_type(path)}]
-        {:error, _} -> []
+        {:ok, binary} ->
+          [{binary, GeminiImage.mime_type(path)}]
+
+        {:error, reason} ->
+          # Degrade to text-prompt-only, but say so: otherwise a moved reference
+          # buys a paid spread with no character conditioning and no signal.
+          Logger.warning(
+            "GenerateSpreadImage: reference image for #{name} unreadable, skipping " <>
+              "(#{inspect(reason)}): #{path}"
+          )
+
+          []
       end
     end)
   end
