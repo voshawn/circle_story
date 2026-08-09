@@ -48,4 +48,24 @@ defmodule CircleStory.Books.Composition.ImageOpsTest do
     dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
     Enum.each(Path.wildcard(Path.join(dir, "iotest_*.png")), &File.rm/1)
   end
+
+  test "latest_raw/1 ignores a longer sibling that shares the prefix" do
+    # A bare "<prefix>*.png" glob also matches a longer name built on the same
+    # prefix, and because a letter sorts above every digit the sibling sorts
+    # last and wins -- returning the wrong file even though it is older. The
+    # ^prefix\d+\.png$ anchor is what excludes it; drop the anchor and this
+    # test fails by returning anchortest_more_456.png.
+    dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+    File.mkdir_p!(dir)
+    mine = Path.join(dir, "anchortest_123.png")
+    sibling = Path.join(dir, "anchortest_more_456.png")
+    Image.write!(Image.new!(4, 4, color: :white), mine)
+    Image.write!(Image.new!(4, 4, color: :white), sibling)
+
+    assert ImageOps.latest_raw("anchortest_") == {:ok, mine}
+    assert ImageOps.latest_raw("anchortest_more_") == {:ok, sibling}
+  after
+    dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+    Enum.each(Path.wildcard(Path.join(dir, "anchortest_*.png")), &File.rm/1)
+  end
 end
