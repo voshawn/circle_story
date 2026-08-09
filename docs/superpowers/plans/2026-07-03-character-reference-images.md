@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Executed — historical record.** Pre-merge review changed several contracts this plan specifies: `reference_prefix/1` appends a name digest, `CharacterSelector` matches with the `/u` modifier, `ImageOps.latest_raw/1` anchors on the trailing timestamp, and `attach_character_reference/2` returns `{:error, :no_reference_image}` instead of the book unchanged. The shipped contracts live in the module `@doc`s and in `docs/superpowers/specs/2026-07-03-character-reference-images-design.md`; do not read the snippets below as current.
+
 **Goal:** Generate an AI character reference portrait (in the book's master style) for each character, reuse it as a conditioning image for the spreads that feature that character, and render it (plus a user-uploaded dedication photo) into the back-cover and dedication circles.
 
 **Architecture:** A new Jido action (`GenerateCharacterReference`) produces a square portrait saved under `priv/generated_images/`; its path lands in-memory on `Character.reference_image_path` via new `Generator` functions. A new `CharacterSelector` module is the single seam for "which characters belong in this spread" (name matching today, swappable to an LLM later); `GenerateSpreadImage` and `Generator.inspect_prompt` route character prompts/images through it. `PageComponents` gain optional image URIs for the two circles, resolved by `Composition` from the relevant paths.

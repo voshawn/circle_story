@@ -6,6 +6,15 @@ defmodule CircleStory.Books.Generator do
 
       book = CircleStory.Books.Templates.NanisMagicThread.book()
 
+      # One AI reference portrait per character, so the same face recurs across
+      # spreads. Do this first: spreads only get conditioned on the characters
+      # whose reference is already attached to the book you pass in.
+      {:ok, book} = CircleStory.Books.Generator.generate_character_reference(book, "Ornella")
+
+      # ...or, in a fresh session, re-attach the newest saved portrait instead of
+      # paying to regenerate it ({:error, :no_reference_image} if none is saved)
+      {:ok, book} = CircleStory.Books.Generator.attach_character_reference(book, "Ornella")
+
       # Full path: generate art + bounding box + render component -> print-ready PNG
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.generate_cover(book)
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.generate_spread(book, 1)
