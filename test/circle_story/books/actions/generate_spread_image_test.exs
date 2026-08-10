@@ -3,8 +3,47 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImageTest do
 
   alias CircleStory.Books.{Character, InnerSpread}
   alias CircleStory.Books.Actions.GenerateSpreadImage
+  alias CircleStory.CharacterSelectorProviderFake
 
-  @moduletag :skip
+  test "space-free CJK selection preserves the prompt block and reference-image conditioning" do
+    fixture_dir =
+      Path.join(System.tmp_dir!(), "spread_request_test_#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(fixture_dir)
+    reference_path = Path.join(fixture_dir, "li_ming.png")
+    File.write!(reference_path, "li-ming-reference-bytes")
+    on_exit(fn -> File.rm_rf(fixture_dir) end)
+
+    li_ming = %Character{
+      name: "李明",
+      image_prompt: "a curious child in a yellow raincoat",
+      reference_image_path: reference_path
+    }
+
+    other = %Character{name: "Asha", image_prompt: "a professor"}
+    spread = %InnerSpread{position: 1, text: "李明走进花园", image_prompt: "a sunny garden"}
+    send(self(), {:character_selector_response, {:ok, ["李明"]}})
+
+    request =
+      GenerateSpreadImage.build_request(spread, [li_ming, other], :inner,
+        provider: CharacterSelectorProviderFake,
+        cache_dir: Path.join(fixture_dir, "selection_cache")
+      )
+
+    assert_receive {:character_selector_called, ^spread, ["李明", "Asha"]}
+    assert request.selected_characters == [li_ming]
+
+    {:ok, context} = ReqLLM.Context.normalize(request.messages, [])
+    [user] = context.messages
+    text = Enum.find(user.content, &(&1.type == :text))
+    image = Enum.find(user.content, &(&1.type == :image))
+
+    assert text.text =~ "<李明>"
+    assert text.text =~ "a curious child in a yellow raincoat"
+    refute text.text =~ "<ASHA>"
+    assert image.data == "li-ming-reference-bytes"
+    assert image.media_type == "image/png"
+  end
 
   @tag :integration
   test "generates an image and saves it to disk" do

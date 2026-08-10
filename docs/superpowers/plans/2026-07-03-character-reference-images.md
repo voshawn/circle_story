@@ -1,12 +1,19 @@
 # Character Reference Images Implementation Plan
 
+**Status:** Shipped — historical execution record. The `- [ ]` step boxes below
+are the authoring syntax this plan was written in, not open work; like the other
+plans in `docs/superpowers/plans/`, they are not flipped after execution. For
+what actually ships today, read
+`docs/superpowers/specs/2026-07-03-character-reference-images-design.md`, which
+is the authoritative contract wherever it and a task step disagree.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Executed — historical record.** Pre-merge review changed several contracts this plan specifies: `reference_prefix/1` appends a name digest, `CharacterSelector` matches with the `/u` modifier, `ImageOps.latest_raw/1` anchors on the trailing timestamp, and `attach_character_reference/2` returns `{:error, :no_reference_image}` instead of the book unchanged. The shipped contracts live in the module `@doc`s and in `docs/superpowers/specs/2026-07-03-character-reference-images-design.md`; do not read the snippets below as current.
+> **Executed — historical record.** Pre-merge review changed several contracts this plan specifies: `reference_prefix/1` appends a name digest, `ImageOps.latest_raw/1` anchors on the trailing timestamp, and `attach_character_reference/2` returns `{:error, :no_reference_image}` instead of the book unchanged. The shipped contracts live in the module `@doc`s and in `docs/superpowers/specs/2026-07-03-character-reference-images-design.md`; do not read the snippets below as current.
 
 **Goal:** Generate an AI character reference portrait (in the book's master style) for each character, reuse it as a conditioning image for the spreads that feature that character, and render it (plus a user-uploaded dedication photo) into the back-cover and dedication circles.
 
-**Architecture:** A new Jido action (`GenerateCharacterReference`) produces a square portrait saved under `priv/generated_images/`; its path lands in-memory on `Character.reference_image_path` via new `Generator` functions. A new `CharacterSelector` module is the single seam for "which characters belong in this spread" (name matching today, swappable to an LLM later); `GenerateSpreadImage` and `Generator.inspect_prompt` route character prompts/images through it. `PageComponents` gain optional image URIs for the two circles, resolved by `Composition` from the relevant paths.
+**Architecture:** A new Jido action (`GenerateCharacterReference`) produces a square portrait saved under `priv/generated_images/`; its path lands in-memory on `Character.reference_image_path` via new `Generator` functions. `CharacterSelector` is the single seam for "which characters belong in this spread"; actual renders use a cached Gemini 3.1 Flash-Lite selection, while previews only consume the cache. `GenerateSpreadImage` routes character prompts/images through it. `PageComponents` gain optional image URIs for the two circles, resolved by `Composition` from the relevant paths.
 
 **Tech Stack:** Elixir 1.20 / Phoenix 1.8 / LiveView, Jido + ReqLLM (Google Gemini image model), `image`/libvips (`ImageOps`), ExUnit + `Phoenix.LiveViewTest`.
 
@@ -18,6 +25,20 @@
 - `mix test` excludes `:integration` (see `test/test_helper.exs`). Model-calling tests must be tagged `@tag :integration`.
 - Run `mix precommit` before finishing (compile warnings-as-errors, unused-dep check, format, test). Any unused alias/variable fails the build.
 - HEEx escapes text in `{...}` (e.g. `'` → `&#39;`); assert against escaped output in component tests.
+
+> **2026-08 selector follow-up:** Task 2 below records the original deterministic
+> implementation. It was superseded after Unicode word boundaries still dropped
+> CJK names adjacent to other CJK text. The implemented contract is documented in
+> the design's `CharacterSelector` section: render-only Gemini selection, a
+> content-keyed cache reused by retries/previews, and explicit warning plus an
+> include-all fallback on failure. Selector behavior is tested through
+> deterministic provider fakes; the real `CharacterSelector.Gemini` adapter is
+> covered only through a stubbed local HTTP plug, never a live model call.
+>
+> Review also changed two smaller shapes the tasks below still record:
+> `reference_prefix/1` is now `character_<slug>_<digest>_` (Task 4), and
+> `attach_character_reference/2` returns `{:error, :no_reference_image}` rather
+> than the book unchanged (Task 6).
 
 ---
 
