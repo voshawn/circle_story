@@ -10,9 +10,11 @@ defmodule CircleStory.Books.CharacterSelector do
   and cache failures are explicit in logs and also fall back to every character
   so conditioning is never silently dropped.
 
-  Each cache entry records the provider's
+  Each cache entry records the provider module and its
   `c:CircleStory.Books.CharacterSelector.Provider.selection_version/0`, so
-  changing the model or its instructions makes a render select again instead of
+  changing the provider or anything that determines its answers (for
+  `CircleStory.Books.CharacterSelector.Gemini`: the model, thinking level,
+  prompt text, or response schema) makes a render select again instead of
   reusing an entry produced by the previous configuration, and makes a preview
   include every character rather than serving a superseded selection.
   """

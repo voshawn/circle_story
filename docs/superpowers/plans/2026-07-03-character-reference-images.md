@@ -9,7 +9,7 @@ is the authoritative contract wherever it and a task step disagree.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Executed — historical record.** Pre-merge review changed several contracts this plan specifies: `reference_prefix/1` appends a name digest, `CharacterSelector` matches with the `/u` modifier, `ImageOps.latest_raw/1` anchors on the trailing timestamp, and `attach_character_reference/2` returns `{:error, :no_reference_image}` instead of the book unchanged. The shipped contracts live in the module `@doc`s and in `docs/superpowers/specs/2026-07-03-character-reference-images-design.md`; do not read the snippets below as current.
+> **Executed — historical record.** Pre-merge review changed several contracts this plan specifies: `reference_prefix/1` appends a name digest, `ImageOps.latest_raw/1` anchors on the trailing timestamp, and `attach_character_reference/2` returns `{:error, :no_reference_image}` instead of the book unchanged. The shipped contracts live in the module `@doc`s and in `docs/superpowers/specs/2026-07-03-character-reference-images-design.md`; do not read the snippets below as current.
 
 **Goal:** Generate an AI character reference portrait (in the book's master style) for each character, reuse it as a conditioning image for the spreads that feature that character, and render it (plus a user-uploaded dedication photo) into the back-cover and dedication circles.
 

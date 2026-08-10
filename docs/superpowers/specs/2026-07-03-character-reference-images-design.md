@@ -120,28 +120,34 @@ judgment; do not over-refactor.
 
 `lib/circle_story/books/character_selector.ex` is the single seam for "which
 characters belong in this spread." `for_spread/2` is used only by actual spread
-rendering. On a cache miss it calls `CharacterSelector.Gemini`, which uses
-`google:gemini-3.1-flash-lite` structured output to return exact names from the
-configured candidate list. This handles names embedded in space-free scripts
-without adding language-specific boundary rules.
+rendering. On a cache miss it calls the configured provider — by default
+`CharacterSelector.Gemini`, which uses `google:gemini-3.1-flash-lite` structured
+output to return exact names from the configured candidate list. This handles
+names embedded in space-free scripts without adding language-specific boundary
+rules. The provider is overridable via the `:character_selector_provider`
+application env or a `:provider` option, which is how tests pin deterministic
+fakes.
 
 Selections are stored as JSON under
-`priv/generated_images/character_selections/`, keyed by the spread text, image
-prompt, and configured names. Cached names are validated against the current
-candidates before use. A retry reuses a cached *model* selection, but selects
-again when the cached entry is an include-all failure fallback or was produced
-under a different `Provider.selection_version/0` (model or instructions), so
-neither a transient failure nor a superseded model can pin a spread forever.
+`priv/generated_images/character_selections/` (gitignored), keyed by the spread
+text, image prompt, and configured names. Cached names are validated against the
+current candidates before use. A retry reuses a cached *model* selection, but
+selects again when the cached entry is an include-all failure fallback or was
+produced under a different `Provider.selection_version/0` — the provider module
+plus everything that determines its answers, which for Gemini is the model,
+thinking level, full prompt text, and response schema — so neither a transient
+failure nor a superseded selection identity can pin a spread forever. A provider
+that cannot report its version yields an unmatchable one, so no cached entry is
+reused.
 
 `for_preview/2` only reads this cache, and reuses an entry only when it is a
 model selection recorded under the current `Provider.selection_version/0`
 (reading that version is a pure call). A preview before the first render, or one
 whose cached entry is a fallback, is superseded, or has an unreadable version,
 warns and includes all configured characters; it never initiates a model call.
-Provider errors,
-invalid responses, and cache errors are logged explicitly. A provider failure
-uses and caches an include-all fallback so a paid image render never silently
-loses character conditioning.
+Provider errors, invalid responses, and cache errors are logged explicitly. A
+provider failure uses and caches an include-all fallback so a paid image render
+never silently loses character conditioning.
 
 Wiring in `GenerateSpreadImage.run/2`:
 1. Compute `selected = CharacterSelector.for_spread(spread, characters)`.
