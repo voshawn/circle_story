@@ -251,6 +251,58 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     assert log =~ "including all configured characters"
   end
 
+  test "the emitted selection schema constrains the model to the candidate names" do
+    schema = Gemini.object_schema(["李明", "Asha"])
+    {:ok, %{compiled: compiled}} = ReqLLM.Schema.compile(schema)
+
+    assert {:ok, _} = NimbleOptions.validate([character_names: ["李明"]], compiled)
+
+    assert {:error, %NimbleOptions.ValidationError{}} =
+             NimbleOptions.validate([character_names: ["李明 (Li Ming)"]], compiled)
+
+    json = ReqLLM.Schema.to_json(schema)
+
+    assert json["required"] == ["character_names"]
+    assert json["properties"]["character_names"]["type"] == "array"
+    assert json["properties"]["character_names"]["items"]["enum"] == ["李明", "Asha"]
+  end
+
+  test "a name repeated by the provider selects that character once", %{cache_dir: cache_dir} do
+    spread = %InnerSpread{position: 14, text: "Ornella, Ornella!", image_prompt: "a nursery"}
+
+    assert select(spread, chars(), ["Ornella", "Ornella"], cache_dir) |> Enum.map(& &1.name) == [
+             "Ornella"
+           ]
+
+    assert CharacterSelector.for_preview(spread, chars(), cache_dir: cache_dir)
+           |> Enum.map(& &1.name) == ["Ornella"]
+  end
+
+  test "a render re-selects when the provider's selection version changes", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 15, text: "Meet Ornella and Nani.", image_prompt: "a nursery"}
+
+    assert select(spread, chars(), ["Ornella"], cache_dir) |> Enum.map(& &1.name) == ["Ornella"]
+
+    Process.put(:character_selector_fake_version, :v2)
+
+    log =
+      capture_log(fn ->
+        assert select(spread, chars(), ["Nani"], cache_dir) |> Enum.map(& &1.name) == ["Nani"]
+      end)
+
+    assert log =~ "predates the current selection version"
+
+    assert CharacterSelector.for_spread(spread, chars(),
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           )
+           |> Enum.map(& &1.name) == ["Nani"]
+
+    refute_receive {:character_selector_called, _, _}
+  end
+
   test "unknown names in a provider response are an explicit include-all failure", %{
     cache_dir: cache_dir
   } do
