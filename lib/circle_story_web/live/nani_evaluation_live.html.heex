@@ -1,0 +1,807 @@
+<Layouts.app flash={@flash} wide>
+  <div
+    id="nani-evaluation"
+    class={[
+      "min-w-0 space-y-10 rounded-[2.25rem] bg-[#f7f3ea] p-3 pb-16 text-slate-900 shadow-[0_30px_90px_-55px_rgba(0,0,0,0.65)] sm:p-6 lg:p-8"
+    ]}
+  >
+    <section
+      id="nani-evaluation-header"
+      class={[
+        "relative overflow-hidden rounded-[2rem] border border-amber-200/80 bg-[#fffaf0] px-5 py-8 shadow-[0_24px_70px_-38px_rgba(69,43,16,0.45)] sm:px-8 lg:px-12 lg:py-11"
+      ]}
+    >
+      <div class={["absolute -right-16 -top-20 size-72 rounded-full bg-amber-200/35 blur-3xl"]}>
+      </div>
+      <div class={["absolute -bottom-28 left-1/3 size-64 rounded-full bg-rose-200/25 blur-3xl"]}>
+      </div>
+
+      <div class={["relative grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-end"]}>
+        <div class={["min-w-0"]}>
+          <div class={["mb-5 flex flex-wrap items-center gap-2"]}>
+            <span class={[
+              "inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-amber-900"
+            ]}>
+              <.icon name="hero-beaker" class="size-3.5" /> Development evaluation
+            </span>
+            <span class={[
+              "rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-semibold text-slate-600"
+            ]}>
+              Fixed book · phase 1
+            </span>
+          </div>
+          <p class={["text-sm font-semibold uppercase tracking-[0.16em] text-rose-700"]}>
+            CircleStory image pipeline
+          </p>
+          <h1 class={[
+            "mt-2 max-w-4xl font-serif text-4xl font-semibold leading-[1.05] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl"
+          ]}>
+            Nani's Magic Thread
+          </h1>
+          <p class={["mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg"]}>
+            Inspect references, raw art, composition, exact prompts, and provenance. Loading,
+            refreshing, and reconnecting only read code and disk—nothing generates automatically.
+          </p>
+        </div>
+
+        <div class={["grid grid-cols-3 gap-2 sm:gap-3"]}>
+          <div class={["rounded-2xl border border-white/80 bg-white/75 p-3 shadow-sm"]}>
+            <p class={["text-2xl font-semibold text-slate-950"]}>{@stats.references}/5</p>
+            <p class={["mt-1 text-xs leading-4 text-slate-500"]}>references</p>
+          </div>
+          <div class={["rounded-2xl border border-white/80 bg-white/75 p-3 shadow-sm"]}>
+            <p class={["text-2xl font-semibold text-slate-950"]}>{@stats.raw_art}/10</p>
+            <p class={["mt-1 text-xs leading-4 text-slate-500"]}>raw pages</p>
+          </div>
+          <div class={["rounded-2xl border border-white/80 bg-white/75 p-3 shadow-sm"]}>
+            <p class={["text-2xl font-semibold text-slate-950"]}>{@stats.composed}/11</p>
+            <p class={["mt-1 text-xs leading-4 text-slate-500"]}>composed</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="nani-safety-status" class={["grid gap-3 md:grid-cols-2"]}>
+      <div class={[
+        "flex min-w-0 items-start gap-3 rounded-2xl border px-4 py-4",
+        if(@credential_available?,
+          do: "border-emerald-200 bg-emerald-50 text-emerald-950",
+          else: "border-amber-200 bg-amber-50 text-amber-950"
+        )
+      ]}>
+        <.icon
+          name={if(@credential_available?, do: "hero-check-circle", else: "hero-key")}
+          class="mt-0.5 size-5 shrink-0"
+        />
+        <div class={["min-w-0"]}>
+          <p class={["font-semibold"]}>
+            {if(@credential_available?,
+              do: "Google credential detected",
+              else: "No Google credential detected"
+            )}
+          </p>
+          <p class={["mt-1 text-sm leading-5 opacity-75"]}>
+            <%= if @credential_available? do %>
+              Paid confirmations can run. The credential value is never displayed or sent to the browser.
+            <% else %>
+              You can review and cancel confirmations, inspect prompts, and use eligible free actions.
+              Final paid controls remain blocked.
+            <% end %>
+          </p>
+        </div>
+      </div>
+
+      <div class={[
+        "flex min-w-0 items-start gap-3 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-4 text-cyan-950"
+      ]}>
+        <.icon name="hero-viewfinder-circle" class="mt-0.5 size-5 shrink-0" />
+        <div class={["min-w-0"]}>
+          <p class={["font-semibold"]}>Development outlines are intentional</p>
+          <p class={["mt-1 text-sm leading-5 text-cyan-900/75"]}>
+            Composed pages include red text-box outlines (and placement guides) because
+            <code class={["rounded bg-white/70 px-1 py-0.5 text-xs"]}>debug_bounding_boxes</code>
+            is enabled in development. They are evaluation aids, not print defects.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <div
+      :if={@notice}
+      id="nani-notice"
+      role="status"
+      class={[
+        "flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm"
+      ]}
+    >
+      <.icon name="hero-information-circle" class="mt-0.5 size-5 shrink-0 text-slate-500" />
+      <span class={["min-w-0 break-words"]}>{@notice}</span>
+    </div>
+
+    <div
+      :if={@active}
+      id="nani-active-run"
+      class={[
+        "sticky top-3 z-30 flex flex-col gap-3 rounded-2xl border border-violet-300 bg-violet-950 px-4 py-4 text-white shadow-xl sm:flex-row sm:items-center sm:justify-between"
+      ]}
+    >
+      <div class={["flex min-w-0 items-center gap-3"]}>
+        <.icon name="hero-arrow-path" class="size-5 shrink-0 motion-safe:animate-spin" />
+        <div class={["min-w-0"]}>
+          <p class={["truncate font-semibold"]}>Working on {@active.current_label}</p>
+          <p class={["text-xs text-violet-200"]}>
+            {@active.completed} of {length(@active.plan.stages)} sequential stages complete · browsing remains available
+          </p>
+        </div>
+      </div>
+      <button
+        id="cancel-active-run"
+        type="button"
+        phx-click="cancel-active"
+        class={[
+          "inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-white/30 px-4 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        ]}
+      >
+        <.icon name="hero-stop" class="size-4" /> Cancel action
+      </button>
+    </div>
+
+    <section
+      id="whole-book-action"
+      class={[
+        "rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50/80 p-5 sm:p-7"
+      ]}
+    >
+      <div class={["flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between"]}>
+        <div class={["max-w-3xl"]}>
+          <div class={["flex items-center gap-2 text-slate-500"]}>
+            <.icon name="hero-queue-list" class="size-4" />
+            <p class={["text-xs font-bold uppercase tracking-[0.16em]"]}>
+              Secondary batch action
+            </p>
+          </div>
+          <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+            Sequential whole-book generation
+          </h2>
+          <p class={["mt-2 text-sm leading-6 text-slate-600"]}>
+            Generates all 5 references first, then the cover and 9 spreads, one stage at a time.
+            A cold run is <strong>35 total model calls, including 15 image generations</strong>.
+            Completed files remain on disk if interrupted.
+          </p>
+          <p class={["mt-2 text-sm font-semibold text-slate-800"]}>
+            Current cache estimate: {@batch_plan.total_calls} calls · {@batch_plan.image_calls} image generations.
+          </p>
+        </div>
+
+        <button
+          :if={!@batch_review?}
+          id="review-whole-book"
+          type="button"
+          phx-click="review-batch"
+          disabled={not is_nil(@active)}
+          class={[
+            "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:shadow disabled:cursor-not-allowed disabled:opacity-45"
+          ]}
+        >
+          Review whole-book run
+        </button>
+      </div>
+
+      <div
+        :if={@batch_review?}
+        id="batch-confirmation"
+        class={["mt-6 rounded-2xl border border-rose-300 bg-white p-4 shadow-sm sm:p-5"]}
+      >
+        <div class={["flex items-start gap-3"]}>
+          <.icon name="hero-exclamation-triangle" class="mt-0.5 size-5 shrink-0 text-rose-600" />
+          <div class={["min-w-0 flex-1"]}>
+            <p class={["font-semibold text-slate-950"]}>
+              Confirm {@batch_plan.total_calls} expected model calls for the whole Nani book
+            </p>
+            <ul class={["mt-2 space-y-1 text-sm text-slate-600"]}>
+              <li :for={call <- @batch_plan.calls}>
+                {call.count}× {call.type} ·
+                <code class={["break-all text-xs"]}>{call.model}</code>
+              </li>
+            </ul>
+
+            <.form
+              for={@batch_form}
+              id="batch-confirmation-form"
+              phx-change="validate-batch"
+              phx-submit="start-batch"
+              class={["mt-4"]}
+            >
+              <.input
+                field={@batch_form[:confirmation]}
+                type="text"
+                label="Type GENERATE to authorize the sequential run"
+                autocomplete="off"
+                placeholder="GENERATE"
+                class="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-500 focus:ring-4 focus:ring-rose-100"
+              />
+              <p :if={@batch_error} class={["mt-2 text-sm font-semibold text-rose-700"]}>
+                {@batch_error}
+              </p>
+              <div class={["mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"]}>
+                <button
+                  id="cancel-batch-confirmation"
+                  type="button"
+                  phx-click="cancel-batch-confirmation"
+                  class={[
+                    "min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  ]}
+                >
+                  Cancel · spend nothing
+                </button>
+                <button
+                  id="confirm-whole-book"
+                  type="submit"
+                  disabled={not @credential_available? or not is_nil(@active)}
+                  class={[
+                    "min-h-11 rounded-xl bg-rose-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  ]}
+                >
+                  Generate sequentially
+                </button>
+              </div>
+            </.form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="character-reference-section" class={["space-y-5"]}>
+      <div class={["flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"]}>
+        <div>
+          <p class={["text-xs font-bold uppercase tracking-[0.16em] text-rose-700"]}>Stage 01</p>
+          <h2 class={["mt-1 font-serif text-3xl font-semibold text-slate-950"]}>
+            Character references
+          </h2>
+        </div>
+        <p class={["max-w-xl text-sm leading-5 text-slate-500"]}>
+          Optional source convention: <code class={["break-all"]}>priv/source_images/&lt;lowercase-name&gt;.(png|jpg|jpeg|webp)</code>.
+          Source photos are read for generation and never served by this page.
+        </p>
+      </div>
+
+      <div
+        id="character-reference-grid"
+        phx-update="stream"
+        class={["grid gap-4 sm:grid-cols-2 xl:grid-cols-5"]}
+      >
+        <article
+          :for={{dom_id, character} <- @streams.characters}
+          id={dom_id}
+          class={[
+            "flex min-w-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_45px_-32px_rgba(15,23,42,0.55)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_24px_55px_-30px_rgba(15,23,42,0.5)]"
+          ]}
+        >
+          <div class={["aspect-square bg-slate-100"]}>
+            <%= if character.reference do %>
+              <a
+                href={character.reference.full_url}
+                target="_blank"
+                rel="noreferrer"
+                class={["block size-full"]}
+              >
+                <img
+                  src={character.reference.thumbnail_url}
+                  alt={"Generated reference portrait for #{character.name}"}
+                  loading="lazy"
+                  class={["size-full object-cover"]}
+                />
+              </a>
+            <% else %>
+              <div class={[
+                "flex size-full flex-col items-center justify-center gap-2 px-4 text-center text-slate-400"
+              ]}>
+                <.icon name="hero-user" class="size-10" />
+                <span class={["text-sm font-medium"]}>No reference on disk</span>
+              </div>
+            <% end %>
+          </div>
+
+          <div class={["flex flex-1 flex-col p-4"]}>
+            <div class={["flex min-w-0 items-start justify-between gap-2"]}>
+              <h3 class={["truncate text-lg font-semibold text-slate-950"]}>{character.name}</h3>
+              <span
+                :if={active_for?(@active, character.key)}
+                class={[
+                  "inline-flex shrink-0 items-center gap-1 rounded-full bg-violet-100 px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide text-violet-800"
+                ]}
+              >
+                <.icon name="hero-arrow-path" class="size-3 motion-safe:animate-spin" /> Running
+              </span>
+            </div>
+
+            <span class={[
+              "mt-2 inline-flex w-fit items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+              if(character.source_photo?,
+                do: "bg-emerald-100 text-emerald-800",
+                else: "bg-amber-100 text-amber-900"
+              )
+            ]}>
+              {if(character.source_photo?,
+                do: "Source photo found on private disk",
+                else: "No source photo · text-only portrait"
+              )}
+            </span>
+
+            <div
+              :if={character.reference}
+              class={["mt-3 space-y-1 text-xs leading-4 text-slate-500"]}
+            >
+              <p class={["font-semibold text-slate-700"]}>
+                {origin_label(@session_items, character.key)}
+              </p>
+              <p class={["break-all"]}>{character.reference.basename}</p>
+              <p>Generation: {character.reference.generated_at}</p>
+              <p>File modified: {character.reference.modified_at}</p>
+              <p class={["break-all"]}>Model: {GeminiImage.model()}</p>
+            </div>
+
+            <details class={["group mt-4 rounded-xl border border-slate-200 bg-slate-50"]}>
+              <summary class={[
+                "flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-slate-700"
+              ]}>
+                Exact prompt preview
+                <.icon
+                  name="hero-chevron-down"
+                  class="size-4 transition group-open:rotate-180"
+                />
+              </summary>
+              <div class={["border-t border-slate-200 p-3"]}>
+                <p class={["text-[0.65rem] font-bold uppercase tracking-wider text-slate-400"]}>
+                  System
+                </p>
+                <pre class={[
+                  "mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.68rem] leading-4 text-slate-700"
+                ]}>{character.system_prompt}</pre>
+                <p class={[
+                  "mt-3 text-[0.65rem] font-bold uppercase tracking-wider text-slate-400"
+                ]}>
+                  User
+                </p>
+                <pre class={[
+                  "mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[0.68rem] leading-4 text-slate-700"
+                ]}>{character.user_prompt}</pre>
+              </div>
+            </details>
+
+            <p
+              :if={error = error_for(@errors, character.key)}
+              class={["mt-3 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-800"]}
+            >
+              {error}
+            </p>
+
+            <div class={["mt-auto pt-4"]}>
+              <button
+                id={"prepare-portrait-#{character.id}"}
+                type="button"
+                phx-click="prepare-paid"
+                phx-value-action="portrait"
+                phx-value-item={character.name}
+                disabled={not is_nil(@active)}
+                class={[
+                  "inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                ]}
+              >
+                <.icon name="hero-sparkles" class="size-4" /> Review portrait · 1 call
+              </button>
+            </div>
+
+            <div
+              :if={pending_for?(@pending, character.key)}
+              id={"confirmation-#{character.id}"}
+              class={["mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3"]}
+            >
+              <p class={["text-sm font-semibold text-rose-950"]}>
+                Generate portrait for {character.name}?
+              </p>
+              <p class={["mt-1 text-xs leading-5 text-rose-900/75"]}>
+                {@pending.total_calls} expected call: Image generation ·
+                <span class={["break-all font-mono"]}>{GeminiImage.model()}</span>
+              </p>
+              <p
+                :if={!@credential_available?}
+                class={["mt-2 text-xs font-semibold text-amber-800"]}
+              >
+                GOOGLE_API_KEY is missing; generation is blocked.
+              </p>
+              <div class={["mt-3 grid grid-cols-2 gap-2"]}>
+                <button
+                  type="button"
+                  phx-click="cancel-confirmation"
+                  class={[
+                    "min-h-9 rounded-lg border border-rose-300 bg-white px-2 text-xs font-semibold text-rose-900 hover:bg-rose-100"
+                  ]}
+                >
+                  Cancel · free
+                </button>
+                <button
+                  id={"confirm-portrait-#{character.id}"}
+                  type="button"
+                  phx-click="confirm-paid"
+                  disabled={not @credential_available?}
+                  class={[
+                    "min-h-9 rounded-lg bg-rose-700 px-2 text-xs font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  ]}
+                >
+                  Generate now
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="page-evaluation-section" class={["space-y-5"]}>
+      <div>
+        <p class={["text-xs font-bold uppercase tracking-[0.16em] text-rose-700"]}>Stage 02</p>
+        <h2 class={["mt-1 font-serif text-3xl font-semibold text-slate-950"]}>Page evaluation</h2>
+        <p class={["mt-2 max-w-3xl text-sm leading-6 text-slate-500"]}>
+          Raw image-model output is shown beside print-ready composition. Thumbnails load through
+          the development HTTP artifact endpoint; no image bytes or data URIs travel in LiveView diffs.
+        </p>
+      </div>
+
+      <div id="page-evaluation-list" phx-update="stream" class={["space-y-5"]}>
+        <article
+          :for={{dom_id, page} <- @streams.pages}
+          id={dom_id}
+          class={[
+            "min-w-0 overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-[0_22px_60px_-42px_rgba(15,23,42,0.65)]"
+          ]}
+        >
+          <header class={[
+            "flex flex-col gap-4 border-b border-slate-200 bg-slate-50/80 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between"
+          ]}>
+            <div class={["min-w-0"]}>
+              <div class={["flex flex-wrap items-center gap-2"]}>
+                <h3 class={["text-xl font-semibold text-slate-950"]}>{page.label}</h3>
+                <span
+                  :if={active_for?(@active, page.key)}
+                  class={[
+                    "inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800"
+                  ]}
+                >
+                  <.icon name="hero-arrow-path" class="size-3 motion-safe:animate-spin" /> Running
+                </span>
+              </div>
+              <p class={["mt-1 line-clamp-2 max-w-3xl text-sm leading-5 text-slate-500"]}>
+                {page.story_text}
+              </p>
+            </div>
+
+            <div :if={page.kind == :art} class={["flex flex-wrap gap-2 text-xs"]}>
+              <span class={[
+                "rounded-full border border-slate-200 bg-white px-2.5 py-1 font-semibold text-slate-600"
+              ]}>
+                {selection_label(page.selection_source)}
+              </span>
+              <span class={[
+                "rounded-full border px-2.5 py-1 font-semibold",
+                if(page.placement.source == :fallback,
+                  do: "border-amber-300 bg-amber-100 text-amber-900",
+                  else: "border-slate-200 bg-white text-slate-600"
+                )
+              ]}>
+                {placement_label(page.placement.source)}
+              </span>
+            </div>
+          </header>
+
+          <div class={["grid min-w-0 gap-px bg-slate-200 lg:grid-cols-2"]}>
+            <div class={["min-w-0 bg-white p-4 sm:p-6"]}>
+              <div class={["mb-3 flex items-center justify-between gap-2"]}>
+                <div>
+                  <p class={["text-xs font-bold uppercase tracking-[0.14em] text-slate-400"]}>
+                    Raw art
+                  </p>
+                  <p class={["mt-0.5 break-all text-xs text-slate-500"]}>{GeminiImage.model()}</p>
+                </div>
+                <span class={[
+                  "rounded-full bg-slate-100 px-2 py-1 text-[0.65rem] font-semibold text-slate-500"
+                ]}>
+                  uncomposed
+                </span>
+              </div>
+
+              <%= if page.raw do %>
+                <a
+                  href={page.raw.full_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  class={[
+                    "group block overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
+                  ]}
+                >
+                  <img
+                    src={page.raw.thumbnail_url}
+                    alt={"Raw generated art for #{page.label}"}
+                    loading="lazy"
+                    class={[
+                      "aspect-[16/9] w-full object-cover transition duration-500 group-hover:scale-[1.015]",
+                      page.page == :cover && "aspect-square"
+                    ]}
+                  />
+                </a>
+                <div class={["mt-3 min-w-0 space-y-1 text-xs leading-4 text-slate-500"]}>
+                  <p class={["font-semibold text-slate-700"]}>
+                    {origin_label(@session_items, page.key)}
+                  </p>
+                  <p class={["break-all"]}>{page.raw.basename}</p>
+                  <p>Generation: {page.raw.generated_at}</p>
+                  <p>File modified: {page.raw.modified_at}</p>
+                </div>
+              <% else %>
+                <div class={[
+                  "flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-slate-400",
+                  page.page == :cover && "aspect-square"
+                ]}>
+                  <.icon name="hero-photo" class="size-9" />
+                  <p class={["text-sm font-medium"]}>
+                    {if(page.kind == :dedication,
+                      do: "No raw art for dedication",
+                      else: "No raw art on disk"
+                    )}
+                  </p>
+                </div>
+              <% end %>
+            </div>
+
+            <div class={["min-w-0 bg-white p-4 sm:p-6"]}>
+              <div class={["mb-3 flex items-center justify-between gap-2"]}>
+                <div>
+                  <p class={["text-xs font-bold uppercase tracking-[0.14em] text-slate-400"]}>
+                    Print-ready composition
+                  </p>
+                  <p class={["mt-0.5 text-xs text-slate-500"]}>
+                    Placement: {placement_label(page.placement.source)}
+                  </p>
+                </div>
+                <span class={[
+                  "rounded-full bg-cyan-50 px-2 py-1 text-[0.65rem] font-semibold text-cyan-800"
+                ]}>
+                  debug outlined
+                </span>
+              </div>
+
+              <%= if page.composed do %>
+                <a
+                  href={page.composed.full_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  class={[
+                    "group block overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600"
+                  ]}
+                >
+                  <img
+                    src={page.composed.thumbnail_url}
+                    alt={"Composed print-ready image for #{page.label}"}
+                    loading="lazy"
+                    class={[
+                      "aspect-[16/9] w-full object-contain transition duration-500 group-hover:scale-[1.01]",
+                      page.page == :cover && "aspect-[2.06/1]"
+                    ]}
+                  />
+                </a>
+                <div class={["mt-3 min-w-0 space-y-1 text-xs leading-4 text-slate-500"]}>
+                  <p class={["font-semibold text-slate-700"]}>
+                    {origin_label(@session_items, page.key)}
+                  </p>
+                  <p class={["break-all"]}>{page.composed.basename}</p>
+                  <p>Generation: {page.composed.generated_at}</p>
+                  <p>File modified: {page.composed.modified_at}</p>
+                  <p :if={Map.has_key?(page.placement, :bounding_box)}>
+                    Box: {inspect(page.placement.bounding_box)} · {page.placement.text_align}/{page.placement.vertical_align}
+                  </p>
+                </div>
+              <% else %>
+                <div class={[
+                  "flex aspect-[16/9] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-slate-400"
+                ]}>
+                  <.icon name="hero-document" class="size-9" />
+                  <p class={["text-sm font-medium"]}>No composed page on disk</p>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+          <div class={["space-y-4 px-4 py-5 sm:px-6"]}>
+            <div :if={page.kind == :art} class={["grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]"]}>
+              <div class={[
+                "min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600"
+              ]}>
+                <p>
+                  <strong>Character selection:</strong> {selection_label(page.selection_source)} · {if(
+                    page.selected_names == [],
+                    do: "none",
+                    else: Enum.join(page.selected_names, ", ")
+                  )}
+                </p>
+                <p class={["break-all"]}>
+                  <strong>Models:</strong>
+                  selector {SelectorGemini.model()} · image {GeminiImage.model()} · placement {PlaceText.model()}
+                </p>
+              </div>
+
+              <div class={["grid gap-2 sm:grid-cols-3"]}>
+                <button
+                  id={"generate-page-#{page.id}"}
+                  type="button"
+                  phx-click="prepare-paid"
+                  phx-value-action="generate-page"
+                  phx-value-item={page_param(page.page)}
+                  disabled={not is_nil(@active)}
+                  class={[
+                    "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl bg-slate-950 px-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  ]}
+                >
+                  <.icon name="hero-sparkles" class="size-4" /> Generate page
+                </button>
+                <button
+                  id={"replace-text-#{page.id}"}
+                  type="button"
+                  phx-click="prepare-paid"
+                  phx-value-action="replace-text"
+                  phx-value-item={page_param(page.page)}
+                  disabled={not page.can_replace? or not is_nil(@active)}
+                  title={
+                    if(page.can_replace?,
+                      do: "One paid placement call",
+                      else: "Generate raw art first"
+                    )
+                  }
+                  class={[
+                    "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-violet-300 bg-violet-50 px-3 text-sm font-semibold text-violet-900 transition hover:-translate-y-0.5 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  ]}
+                >
+                  <.icon name="hero-arrows-pointing-in" class="size-4" /> Re-place text
+                </button>
+                <button
+                  id={"recompose-#{page.id}"}
+                  type="button"
+                  phx-click="run-free"
+                  phx-value-action="recompose"
+                  phx-value-item={page_param(page.page)}
+                  disabled={not page.can_recompose? or not is_nil(@active)}
+                  title={
+                    if(page.can_recompose?,
+                      do: "Zero model calls",
+                      else: "Raw art and cached placement required"
+                    )
+                  }
+                  class={[
+                    "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 text-sm font-semibold text-emerald-900 transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                  ]}
+                >
+                  <.icon name="hero-arrow-path-rounded-square" class="size-4" /> Re-compose · free
+                </button>
+              </div>
+            </div>
+
+            <div :if={page.kind == :dedication} class={["flex justify-end"]}>
+              <button
+                id="recompose-dedication"
+                type="button"
+                phx-click="run-free"
+                phx-value-action="recompose"
+                phx-value-item="dedication"
+                disabled={not is_nil(@active)}
+                class={[
+                  "inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900 transition hover:-translate-y-0.5 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+                ]}
+              >
+                <.icon name="hero-arrow-path-rounded-square" class="size-4" />
+                Compose dedication · free
+              </button>
+            </div>
+
+            <div
+              :if={pending_for?(@pending, page.key)}
+              id={"confirmation-#{page.id}"}
+              class={[
+                "rounded-2xl border border-rose-300 bg-rose-50 p-4 text-rose-950"
+              ]}
+            >
+              <p class={["font-semibold"]}>
+                Confirm {@pending.label}: {@pending.total_calls} expected model {if(
+                  @pending.total_calls == 1,
+                  do: "call",
+                  else: "calls"
+                )}
+              </p>
+              <ul class={["mt-2 space-y-1 text-sm text-rose-900/80"]}>
+                <li :for={call <- @pending.calls}>
+                  {call.count}× {call.type} ·
+                  <code class={["break-all text-xs"]}>{call.model}</code>
+                </li>
+              </ul>
+              <p
+                :if={!@credential_available?}
+                class={["mt-2 text-sm font-semibold text-amber-800"]}
+              >
+                GOOGLE_API_KEY is missing; the final action is blocked.
+              </p>
+              <div class={["mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"]}>
+                <button
+                  type="button"
+                  phx-click="cancel-confirmation"
+                  class={[
+                    "min-h-10 rounded-xl border border-rose-300 bg-white px-4 text-sm font-semibold text-rose-900 hover:bg-rose-100"
+                  ]}
+                >
+                  Cancel · spend nothing
+                </button>
+                <button
+                  id={"confirm-page-action-#{page.id}"}
+                  type="button"
+                  phx-click="confirm-paid"
+                  disabled={not @credential_available?}
+                  class={[
+                    "min-h-10 rounded-xl bg-rose-700 px-4 text-sm font-semibold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  ]}
+                >
+                  Confirm and run
+                </button>
+              </div>
+            </div>
+
+            <p
+              :if={error = error_for(@errors, page.key)}
+              class={["rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-800"]}
+            >
+              <strong>Last returned error:</strong> {error}
+            </p>
+
+            <details :if={page.kind == :art} class={["group rounded-2xl border border-slate-200"]}>
+              <summary class={[
+                "flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-800"
+              ]}>
+                Exact prompt preview · computed locally, zero model calls
+                <.icon
+                  name="hero-chevron-down"
+                  class="size-4 shrink-0 transition group-open:rotate-180"
+                />
+              </summary>
+              <div class={["grid gap-px border-t border-slate-200 bg-slate-200 lg:grid-cols-2"]}>
+                <div class={["min-w-0 bg-slate-950 p-4 text-slate-200"]}>
+                  <p class={[
+                    "text-[0.65rem] font-bold uppercase tracking-[0.14em] text-slate-400"
+                  ]}>
+                    System prompt
+                  </p>
+                  <pre class={[
+                    "mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5"
+                  ]}>{page.system_prompt}</pre>
+                </div>
+                <div class={["min-w-0 bg-slate-950 p-4 text-slate-200"]}>
+                  <p class={[
+                    "text-[0.65rem] font-bold uppercase tracking-[0.14em] text-slate-400"
+                  ]}>
+                    User message
+                  </p>
+                  <pre class={[
+                    "mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5"
+                  ]}>{page.user_prompt}</pre>
+                </div>
+              </div>
+            </details>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <footer class={["border-t border-slate-200 pt-6 text-sm leading-6 text-slate-500"]}>
+      <p>
+        Internal development tool only. It does not create PDFs, upload files, persist workflow
+        state, or expose private source photos. Refresh reconstructs the fixed Nani book from code
+        and labels existing artifacts as loaded from disk.
+      </p>
+    </footer>
+  </div>
+</Layouts.app>

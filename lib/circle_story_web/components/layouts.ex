@@ -31,6 +31,8 @@ defmodule CircleStoryWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :wide, :boolean, default: false, doc: "allow wide internal work surfaces"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -43,17 +45,17 @@ defmodule CircleStoryWeb.Layouts do
         </a>
       </div>
       <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
+        <ul class="flex items-center gap-2 px-1">
+          <li class="hidden sm:block">
             <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
           </li>
-          <li>
+          <li class="hidden sm:block">
             <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
           </li>
           <li>
             <.theme_toggle />
           </li>
-          <li>
+          <li class="hidden md:block">
             <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
               Get Started <span aria-hidden="true">&rarr;</span>
             </a>
@@ -62,8 +64,11 @@ defmodule CircleStoryWeb.Layouts do
       </div>
     </header>
 
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    <main class="px-4 py-10 sm:px-6 lg:px-8">
+      <div class={[
+        "mx-auto space-y-4",
+        if(@wide, do: "max-w-7xl", else: "max-w-2xl")
+      ]}>
         {render_slot(@inner_block)}
       </div>
     </main>

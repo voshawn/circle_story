@@ -34,6 +34,13 @@ defmodule CircleStoryWeb.Router do
     # as long as you are also using SSL (which you should anyway).
     import Phoenix.LiveDashboard.Router
 
+    scope "/dev", CircleStoryWeb do
+      pipe_through :browser
+
+      live "/books/nani", NaniEvaluationLive
+      get "/books/nani/artifacts/:root/:basename", DevArtifactController, :show
+    end
+
     scope "/dev" do
       pipe_through :browser
 
