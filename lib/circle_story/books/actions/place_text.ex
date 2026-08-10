@@ -31,14 +31,10 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   # Thinking level for the placement reasoning (:minimal | :low | :medium | :high).
   #
-  # REQUIRES a req_llm that disables `includeThoughts` for the `:object` operation
-  # (agentjido/req_llm#762). Until that's merged + released, the vendored dep is
-  # patched locally; on a fresh `mix deps.get` it reverts, so repoint `mix.exs` at
-  # the fork or wait for the release. Stock req_llm hardcodes `includeThoughts:
-  # true`, which conflicts with structured output (`responseMimeType:
-  # application/json`): at :medium/:high Gemini returns the thought *summary* as
-  # the body and no JSON, so the object can't be parsed. With the fix, the model
-  # reasons internally and still returns a schema-validated object.
+  # ReqLLM >= 1.16.0 disables thought summaries for Google `:object` requests
+  # while retaining internal reasoning (https://github.com/agentjido/req_llm/pull/762).
+  # Earlier releases sent `includeThoughts: true` alongside JSON mode, allowing
+  # thought-summary prose to make otherwise valid structured output undecodable.
   @thinking_level :medium
 
   @doc "The configured text-placement model identity."
@@ -46,7 +42,11 @@ defmodule CircleStory.Books.Actions.PlaceText do
   def model, do: @model
 
   @impl true
-  def run(%{image_png: png, text: text, mode: mode}, _context) do
+  def run(params, context), do: run(params, context, [])
+
+  @doc "Run text placement with additional ReqLLM request options."
+  def run(%{image_png: png, text: text, mode: mode}, _context, request_opts)
+      when is_list(request_opts) do
     # Build the message with ReqLLM ContentPart structs. Plain maps like
     # `%{type: "image_url", ...}` are silently dropped by `Context.normalize/2`,
     # which would send the model an empty message (and a garbage box).
@@ -57,12 +57,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
       ])
     ]
 
+    request_opts =
+      request_opts
+      |> Keyword.put(:google_thinking_level, @thinking_level)
+      |> Keyword.put(:json_repair, false)
+
     with {:ok, response} <-
-           ReqLLM.generate_object(@model, messages, @object_schema,
-             google_thinking_level: @thinking_level
-           ),
-         object when is_map(object) <- ReqLLM.Response.object(response),
-         {:ok, result} <- parse_result(object) do
+           ReqLLM.generate_object(@model, messages, @object_schema, request_opts),
+         {:ok, result} <- parse_response(response) do
       Logger.info(
         "PlaceText[#{mode}] model=#{@model} thinking=#{@thinking_level} parsed=#{inspect(result)}"
       )
@@ -78,11 +80,38 @@ defmodule CircleStory.Books.Actions.PlaceText do
     end
   end
 
-  # Concise error summary for logs — avoids dumping the full request body (which
-  # includes the base64 image) on API errors like a 503.
-  defp summarize_error({:error, %{reason: reason}}) when is_binary(reason), do: reason
-  defp summarize_error({:error, err}), do: inspect(err, limit: 5, printable_limit: 200)
-  defp summarize_error(other), do: inspect(other, limit: 5, printable_limit: 200)
+  @doc false
+  @spec parse_response(ReqLLM.Response.t()) :: {:ok, map()} | {:error, term()}
+  def parse_response(response) do
+    with {:ok, object} <- ReqLLM.Response.unwrap_object(response, json_repair: false),
+         {:ok, result} <- parse_result(object) do
+      {:ok, result}
+    end
+  end
+
+  # Deliberately classify errors instead of inspecting them: ReqLLM errors can
+  # contain request/response bodies, including the image and model output.
+  defp summarize_error({:error, %ReqLLM.Error.API.Request{status: status}})
+       when is_integer(status),
+       do: "model request failed (HTTP #{status})"
+
+  defp summarize_error({:error, %ReqLLM.Error.API.Request{}}), do: "model request failed"
+
+  defp summarize_error({:error, %ReqLLM.Error.API.Response{reason: reason}}) do
+    case reason do
+      "No message in response" -> "structured output response had no message"
+      "Decoded JSON is not an object" -> "structured output was not a JSON object"
+      "Failed to parse JSON from text content" -> "structured output JSON could not be parsed"
+      "No structured output found in response" -> "structured output was absent"
+      _ -> "structured output response was unusable"
+    end
+  end
+
+  defp summarize_error({:error, {:invalid_place_text_result, _}}),
+    do: "structured object failed placement validation"
+
+  defp summarize_error({:error, _}), do: "model request failed"
+  defp summarize_error(_), do: "structured output was absent"
 
   @doc """
   Validate and normalize a raw object map into
