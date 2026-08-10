@@ -117,11 +117,9 @@ defmodule CircleStory.Books.Generator do
   A cached render selection is reused when available. Before the first render,
   the preview conservatively includes all configured characters.
   """
-  @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
-  def inspect_prompt(%Book{} = book, page), do: inspect_prompt(book, page, [])
-
-  @doc false
   @spec inspect_prompt(Book.t(), :cover | 1..9, keyword()) :: {String.t(), String.t()}
+  def inspect_prompt(book, page, selector_opts \\ [])
+
   def inspect_prompt(%Book{} = book, :cover, selector_opts) do
     selected = CharacterSelector.for_preview(book.cover, book.characters, selector_opts)
     {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, selected)}

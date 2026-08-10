@@ -180,7 +180,7 @@ defmodule CircleStory.Books.GeneratorTest do
     setup do
       cache_dir =
         Path.join(
-          [:code.priv_dir(:circle_story), "generated_images"],
+          System.tmp_dir!(),
           "generator_selector_test_#{System.unique_integer([:positive])}"
         )
 

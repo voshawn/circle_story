@@ -7,10 +7,7 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImageTest do
 
   test "space-free CJK selection preserves the prompt block and reference-image conditioning" do
     fixture_dir =
-      Path.join(
-        [:code.priv_dir(:circle_story), "generated_images"],
-        "spread_request_test_#{System.unique_integer([:positive])}"
-      )
+      Path.join(System.tmp_dir!(), "spread_request_test_#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(fixture_dir)
     reference_path = Path.join(fixture_dir, "li_ming.png")

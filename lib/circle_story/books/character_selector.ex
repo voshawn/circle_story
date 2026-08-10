@@ -32,16 +32,15 @@ defmodule CircleStory.Books.CharacterSelector do
   can pin a spread forever. The resulting names (including a new fallback) are
   cached for retries and previews.
   """
-  @spec for_spread(struct(), [Character.t()]) :: [Character.t()]
-  def for_spread(spread, characters), do: for_spread(spread, characters, [])
-
-  @doc false
   @spec for_spread(struct(), [Character.t()], keyword()) :: [Character.t()]
+  def for_spread(spread, characters, opts \\ [])
+
   def for_spread(_spread, [], _opts), do: []
 
   def for_spread(spread, characters, opts) do
     path = cache_path(spread, characters, opts)
-    version = selection_version(provider(opts))
+    provider = provider(opts)
+    version = selection_version(provider)
 
     case load_cache(path, characters) do
       {:ok, names, "model", ^version} ->
@@ -53,7 +52,7 @@ defmodule CircleStory.Books.CharacterSelector do
             "selecting again for this render: #{path}"
         )
 
-        select_and_cache(spread, characters, path, opts)
+        select_and_cache(spread, characters, path, provider, version)
 
       {:ok, _names, "fallback", _version} ->
         Logger.warning(
@@ -61,10 +60,10 @@ defmodule CircleStory.Books.CharacterSelector do
             "selecting again for this render: #{path}"
         )
 
-        select_and_cache(spread, characters, path, opts)
+        select_and_cache(spread, characters, path, provider, version)
 
       :miss ->
-        select_and_cache(spread, characters, path, opts)
+        select_and_cache(spread, characters, path, provider, version)
 
       {:error, reason} ->
         Logger.warning(
@@ -72,7 +71,7 @@ defmodule CircleStory.Books.CharacterSelector do
             "(#{summarize_error(reason)}): #{path}"
         )
 
-        select_and_cache(spread, characters, path, opts)
+        select_and_cache(spread, characters, path, provider, version)
     end
   end
 
@@ -82,11 +81,9 @@ defmodule CircleStory.Books.CharacterSelector do
   When no valid cache exists, every configured character is returned. This keeps
   an unrendered preview conservative instead of silently omitting conditioning.
   """
-  @spec for_preview(struct(), [Character.t()]) :: [Character.t()]
-  def for_preview(spread, characters), do: for_preview(spread, characters, [])
-
-  @doc false
   @spec for_preview(struct(), [Character.t()], keyword()) :: [Character.t()]
+  def for_preview(spread, characters, opts \\ [])
+
   def for_preview(_spread, [], _opts), do: []
 
   def for_preview(spread, characters, opts) do
@@ -126,11 +123,8 @@ defmodule CircleStory.Books.CharacterSelector do
     Path.join(cache_dir(opts), "#{fingerprint}.json")
   end
 
-  defp select_and_cache(spread, characters, path, opts) do
+  defp select_and_cache(spread, characters, path, provider, version) do
     candidate_names = Enum.map(characters, & &1.name)
-    provider = provider(opts)
-    version = selection_version(provider)
-
     result = call_provider(provider, spread, candidate_names)
 
     with {:ok, names} <- result,
@@ -171,10 +165,29 @@ defmodule CircleStory.Books.CharacterSelector do
 
   @spec selection_version(module()) :: String.t()
   defp selection_version(provider) do
-    {provider, provider.selection_version()}
+    {provider, provider_selection_version(provider)}
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp provider_selection_version(provider) do
+    try do
+      provider.selection_version()
+    rescue
+      exception -> unknown_selection_version({:provider_exception, Exception.message(exception)})
+    catch
+      kind, reason -> unknown_selection_version({:provider_failure, kind, reason})
+    end
+  end
+
+  defp unknown_selection_version(reason) do
+    Logger.warning(
+      "CharacterSelector: could not read the provider's selection version; no cached selection " <>
+        "will be reused for this render (#{summarize_error(reason)})"
+    )
+
+    {:unknown_selection_version, System.unique_integer([:positive])}
   end
 
   defp cache_dir(opts) do

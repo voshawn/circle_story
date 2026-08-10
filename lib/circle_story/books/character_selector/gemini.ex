@@ -25,14 +25,19 @@ defmodule CircleStory.Books.CharacterSelector.Gemini do
   empty list when no candidate is referenced.
   """
 
+  @doc """
+  Classify a spread against `candidate_names`.
+
+  `opts` are merged over the request options passed to `ReqLLM.generate_object/4`.
+  """
   @impl true
-  def select(spread, candidate_names) do
+  def select(spread, candidate_names, opts \\ []) do
     messages = [ReqLLM.Context.user(selection_prompt(spread, candidate_names))]
 
+    request_opts = Keyword.merge([google_thinking_level: @thinking_level], opts)
+
     with {:ok, response} <-
-           ReqLLM.generate_object(@model, messages, object_schema(candidate_names),
-             google_thinking_level: @thinking_level
-           ),
+           ReqLLM.generate_object(@model, messages, object_schema(candidate_names), request_opts),
          %{"character_names" => names} when is_list(names) <- ReqLLM.Response.object(response) do
       {:ok, names}
     else

@@ -6,11 +6,12 @@ defmodule CircleStory.Books.CharacterSelectorTest do
   alias CircleStory.Books.{Character, CharacterSelector, CoverSpread, InnerSpread}
   alias CircleStory.Books.CharacterSelector.Gemini
   alias CircleStory.CharacterSelectorProviderFake
+  alias CircleStory.CharacterSelectorProviderUnversioned
 
   setup do
     cache_dir =
       Path.join(
-        [:code.priv_dir(:circle_story), "generated_images"],
+        System.tmp_dir!(),
         "character_selector_test_#{System.unique_integer([:positive])}"
       )
 
@@ -301,6 +302,37 @@ defmodule CircleStory.Books.CharacterSelectorTest do
            |> Enum.map(& &1.name) == ["Nani"]
 
     refute_receive {:character_selector_called, _, _}
+  end
+
+  test "a provider that cannot report its selection version still renders and never caches", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 16, text: "Meet Ornella.", image_prompt: "a nursery"}
+    send(self(), {:character_selector_response, {:ok, ["Ornella"]}})
+
+    log =
+      capture_log(fn ->
+        assert CharacterSelector.for_spread(spread, chars(),
+                 provider: CharacterSelectorProviderUnversioned,
+                 cache_dir: cache_dir
+               )
+               |> Enum.map(& &1.name) == ["Ornella"]
+      end)
+
+    assert log =~ "could not read the provider's selection version"
+    assert_receive {:character_selector_called, ^spread, _}
+
+    send(self(), {:character_selector_response, {:ok, ["Nani"]}})
+
+    capture_log(fn ->
+      assert CharacterSelector.for_spread(spread, chars(),
+               provider: CharacterSelectorProviderUnversioned,
+               cache_dir: cache_dir
+             )
+             |> Enum.map(& &1.name) == ["Nani"]
+    end)
+
+    assert_receive {:character_selector_called, ^spread, _}
   end
 
   test "unknown names in a provider response are an explicit include-all failure", %{
