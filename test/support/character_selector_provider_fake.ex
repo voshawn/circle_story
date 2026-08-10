@@ -4,6 +4,9 @@ defmodule CircleStory.CharacterSelectorProviderFake do
   @behaviour CircleStory.Books.CharacterSelector.Provider
 
   @impl true
+  def selection_version, do: Process.get(:character_selector_fake_version, :v1)
+
+  @impl true
   def select(spread, candidate_names) do
     send(self(), {:character_selector_called, spread, candidate_names})
 

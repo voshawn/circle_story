@@ -1,13 +1,5 @@
 This is a web application written using the Phoenix web framework.
 
-## Project overview
-
-CircleStory is a Phoenix 1.8 and LiveView application backed by SQLite, with AI
-capabilities through Jido, Jido.AI, and ReqLLM. Runtime versions are pinned in
-`mise.toml`; use `mix setup` for first-time setup and `mix phx.server` to run it.
-The OTP supervision tree is authoritative in `lib/circle_story/application.ex`,
-and book generation/composition code lives under `lib/circle_story/books/`.
-
 ## Project guidelines
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
@@ -340,10 +332,3 @@ And **never** do this:
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
-
-## Maintaining this file
-
-Keep this file for knowledge useful to almost every future agent session in this project.
-Do not repeat what the codebase already shows; point to the authoritative file or command instead.
-Prefer rewriting or pruning existing entries over appending new ones.
-When updating this file, preserve this bar for all agents and keep entries concise.

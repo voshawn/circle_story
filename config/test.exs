@@ -34,3 +34,9 @@ config :phoenix_live_view,
   enable_expensive_runtime_checks: true
 
 config :circle_story, start_chromic_pdf: false
+
+# Never let a test reach a live model for character selection; tests that
+# exercise selection pass an explicit fake provider.
+config :circle_story,
+       :character_selector_provider,
+       CircleStory.CharacterSelectorProviderUnavailable

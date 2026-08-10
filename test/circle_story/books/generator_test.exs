@@ -22,24 +22,31 @@ defmodule CircleStory.Books.GeneratorTest do
       dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
       File.mkdir_p!(dir)
 
-      prefix = GenerateCharacterReference.reference_prefix("Ornella")
-      path = Path.join(dir, "#{prefix}#{System.unique_integer([:positive])}.png")
+      name = "Ornella #{System.unique_integer([:positive])}"
+      prefix = GenerateCharacterReference.reference_prefix(name)
+      older = Path.join(dir, "#{prefix}1786000100.png")
+      path = Path.join(dir, "#{prefix}1786000500.png")
+      Image.write!(Image.new!(64, 64, color: :teal), older)
       Image.write!(Image.new!(64, 64, color: :pink), path)
-      on_exit(fn -> File.rm(path) end)
+      on_exit(fn -> Enum.each([older, path], &File.rm/1) end)
 
       book = %Book{
         title: "T",
         author: "A",
-        characters: [%Character{name: "Ornella", image_prompt: "baby"}]
+        characters: [%Character{name: name, image_prompt: "baby"}]
       }
 
-      %{book: book, path: path}
+      %{book: book, path: path, name: name}
     end
 
-    test "attaches the newest saved reference to the named character", %{book: book, path: path} do
-      assert {:ok, updated} = Generator.attach_character_reference(book, "Ornella")
+    test "attaches the newest saved reference to the named character", %{
+      book: book,
+      path: path,
+      name: name
+    } do
+      assert {:ok, updated} = Generator.attach_character_reference(book, name)
 
-      assert [%Character{name: "Ornella", reference_image_path: ^path}] = updated.characters
+      assert [%Character{name: ^name, reference_image_path: ^path}] = updated.characters
     end
 
     test "returns an error for an unknown character name", %{book: book} do
@@ -47,13 +54,15 @@ defmodule CircleStory.Books.GeneratorTest do
     end
 
     test "errors instead of reporting success when no reference file exists" do
+      name = "Zzz #{System.unique_integer([:positive])}"
+
       book = %Book{
         title: "T",
         author: "A",
-        characters: [%Character{name: "Zzz", image_prompt: "x"}]
+        characters: [%Character{name: name, image_prompt: "x"}]
       }
 
-      assert {:error, :no_reference_image} = Generator.attach_character_reference(book, "Zzz")
+      assert {:error, :no_reference_image} = Generator.attach_character_reference(book, name)
     end
   end
 
@@ -62,45 +71,51 @@ defmodule CircleStory.Books.GeneratorTest do
       dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
       File.mkdir_p!(dir)
 
-      # "Nani" is a prefix of "Nani Rose". A bare "character_nani_*" glob also
-      # matches "character_nani_rose_*", and because 'r' sorts above every digit
-      # the *wrong* character wins even though Nani's portrait is newer.
+      # The shorter name is a prefix of the longer one. A bare "character_nani_*"
+      # glob also matches "character_nani_rose_*", and because 'r' sorts above
+      # every digit the *wrong* character wins even though Nani's portrait is newer.
+      short_name = "Nani #{System.unique_integer([:positive])}"
+      long_name = "#{short_name} Rose"
+
       nani =
-        Path.join(dir, "#{GenerateCharacterReference.reference_prefix("Nani")}1786000500.png")
+        Path.join(dir, "#{GenerateCharacterReference.reference_prefix(short_name)}1786000500.png")
 
       rose =
-        Path.join(
-          dir,
-          "#{GenerateCharacterReference.reference_prefix("Nani Rose")}1786000100.png"
-        )
+        Path.join(dir, "#{GenerateCharacterReference.reference_prefix(long_name)}1786000100.png")
 
       Image.write!(Image.new!(8, 8, color: :pink), nani)
       Image.write!(Image.new!(8, 8, color: :blue), rose)
       on_exit(fn -> Enum.each([nani, rose], &File.rm/1) end)
 
-      %{nani: nani, rose: rose}
+      %{nani: nani, rose: rose, short_name: short_name, long_name: long_name}
     end
 
-    test "a shorter name does not pick up a longer name's portrait", %{nani: nani} do
+    test "a shorter name does not pick up a longer name's portrait", %{
+      nani: nani,
+      short_name: short_name
+    } do
       book = %Book{
         title: "T",
         author: "A",
-        characters: [%Character{name: "Nani", image_prompt: "elder"}]
+        characters: [%Character{name: short_name, image_prompt: "elder"}]
       }
 
-      assert {:ok, updated} = Generator.attach_character_reference(book, "Nani")
-      assert [%Character{name: "Nani", reference_image_path: ^nani}] = updated.characters
+      assert {:ok, updated} = Generator.attach_character_reference(book, short_name)
+      assert [%Character{name: ^short_name, reference_image_path: ^nani}] = updated.characters
     end
 
-    test "the longer name still resolves to its own portrait", %{rose: rose} do
+    test "the longer name still resolves to its own portrait", %{
+      rose: rose,
+      long_name: long_name
+    } do
       book = %Book{
         title: "T",
         author: "A",
-        characters: [%Character{name: "Nani Rose", image_prompt: "mother"}]
+        characters: [%Character{name: long_name, image_prompt: "mother"}]
       }
 
-      assert {:ok, updated} = Generator.attach_character_reference(book, "Nani Rose")
-      assert [%Character{name: "Nani Rose", reference_image_path: ^rose}] = updated.characters
+      assert {:ok, updated} = Generator.attach_character_reference(book, long_name)
+      assert [%Character{name: ^long_name, reference_image_path: ^rose}] = updated.characters
     end
   end
 
@@ -113,13 +128,15 @@ defmodule CircleStory.Books.GeneratorTest do
       # both slug to "jos", 李明 and 小华 both slug to "". Without a digest of the
       # exact name these pairs share a prefix outright, and the newest file (the
       # *other* character's portrait) wins for both.
+      unique = System.unique_integer([:positive])
+
       saved =
         Map.new(
           [
-            {"José", 1_786_000_100},
-            {"Jos", 1_786_000_500},
-            {"李明", 1_786_000_100},
-            {"小华", 1_786_000_500}
+            {"José #{unique}", 1_786_000_100},
+            {"Jos #{unique}", 1_786_000_500},
+            {"李明 #{unique}", 1_786_000_100},
+            {"小华 #{unique}", 1_786_000_500}
           ],
           fn {name, ts} ->
             path =
