@@ -25,6 +25,12 @@
 > the design's `CharacterSelector` section: render-only Gemini selection, a
 > content-keyed cache reused by retries/previews, and explicit warning plus an
 > include-all fallback on failure. Tests use only the provider fake.
+>
+> Review also changed two smaller shapes the tasks below still record:
+> `reference_prefix/1` is now `character_<slug>_<digest>_` (Task 4), and
+> `attach_character_reference/2` returns `{:error, :no_reference_image}` rather
+> than the book unchanged (Task 6). Where a task step and the design spec
+> disagree, the design spec is the shipped contract.
 
 ---
 

@@ -127,8 +127,11 @@ without adding language-specific boundary rules.
 
 Selections are stored as JSON under
 `priv/generated_images/character_selections/`, keyed by the spread text, image
-prompt, and configured names. Retries reuse the same result. Cached names are
-validated against the current candidates before use.
+prompt, and configured names. Cached names are validated against the current
+candidates before use. A retry reuses a cached *model* selection, but selects
+again when the cached entry is an include-all failure fallback or was produced
+under a different `Provider.selection_version/0` (model or instructions), so
+neither a transient failure nor a superseded model can pin a spread forever.
 
 `for_preview/2` only reads this cache. A preview before the first render includes
 all configured characters and never initiates a model call. Provider errors,
