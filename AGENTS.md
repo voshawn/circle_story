@@ -7,6 +7,9 @@ capabilities through Jido, Jido.AI, and ReqLLM. Runtime versions are pinned in
 `mise.toml`; use `mix setup` for first-time setup and `mix phx.server` to run it.
 The OTP supervision tree is authoritative in `lib/circle_story/application.ex`,
 and book generation/composition code lives under `lib/circle_story/books/`.
+Migrations run automatically at startup, except in releases (skipped when the
+`RELEASE_NAME` env var is set). In dev, the LiveDashboard is at `/dev/dashboard`
+and the Swoosh mailbox preview at `/dev/mailbox`.
 
 ## Project guidelines
 

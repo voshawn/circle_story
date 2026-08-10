@@ -71,7 +71,7 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     assert select(spread, chars(), [], cache_dir) == []
 
     prompt = Gemini.selection_prompt(spread, ["Asha"])
-    assert prompt =~ "not as a substring"
+    assert prompt =~ ~s(CANDIDATE_NAMES: ["Asha"])
     assert prompt =~ ~s(STORY_TEXT: "Sasha felt ashamed.")
   end
 
