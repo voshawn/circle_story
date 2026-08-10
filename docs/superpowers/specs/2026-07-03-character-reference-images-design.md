@@ -1,7 +1,8 @@
 # Character Reference Images — Design
 
 **Date:** 2026-07-03
-**Status:** Approved, pending implementation plan
+**Status:** Approved — implemented (see
+`docs/superpowers/plans/2026-07-03-character-reference-images.md`)
 
 ## Goal
 
@@ -42,13 +43,21 @@ and the `NanisMagicThread` template, using local files and in-memory structs.
 | Dedication photo (input) | `priv/source_images/` | `DedicationSpread.user_image_path` (set in template) |
 | AI character reference (output) | `priv/generated_images/` | `Character.reference_image_path` (set by generator, in-memory) |
 
-- `priv/source_images/` is a new folder for hand-provided inputs, committed to
-  the repo. The template references files with the existing idiom:
-  `Path.join(:code.priv_dir(:circle_story), "source_images/ornella.jpg")`.
+- `priv/source_images/` is a new folder for hand-provided inputs. Only its
+  `.gitkeep` is tracked — the photos themselves are real people (including
+  children) and are gitignored. The template references files with the existing
+  idiom: `Path.join(:code.priv_dir(:circle_story), "source_images/ornella.jpg")`.
 - AI references are saved as
-  `priv/generated_images/character_<slug>_<ts>.png`, alongside existing
+  `priv/generated_images/character_<slug>_<digest>_<ts>.png`, alongside existing
   `inner_*`/`cover_front_*` art. `<slug>` is the downcased, non-alphanumeric →
-  `_` character name.
+  `_` character name (lossy, so filenames stay ASCII) and `<digest>` is the
+  first 8 hex chars of the SHA-256 of the exact name, which is what actually
+  keeps two characters apart — see `GenerateCharacterReference.reference_prefix/1`
+  for why the slug alone is not enough.
+- The digest was added after the first portraits were generated, so any
+  `character_<slug>_<ts>.png` written before it is no longer found by
+  `attach_character_reference/2`; regenerate or rename those. Acceptable for a
+  pre-release, IEx-driven feature with no persistence.
 - Reference paths live only in memory on the returned `Book` struct (no DB),
   the same as `generated_image_path` today.
 
@@ -83,10 +92,13 @@ Jido.Action`).
     upper/full figure, **no text**).
   - User message: the character's `image_prompt`.
   - If `source_image_path` is set, load it and attach as a reference image with
-    an instruction to match that person's likeness.
+    an instruction to match that person's likeness. An unreadable path degrades
+    to a text-only portrait rather than failing, but logs a warning — the call
+    is paid, so a silently ignored photo must not look like success.
   - Aspect ratio `1:1`; `google_thinking_level: :high` (consistent with
     `GenerateSpreadImage`).
-  - Save to `priv/generated_images/character_<slug>_<ts>.png`.
+  - Save under `priv/generated_images/` with the filename from
+    `reference_prefix/1` (see "File conventions" above).
 - **Returns:** `{:ok, %{image_path: path}}`.
 
 Reuses `GenerateSpreadImage`'s existing helpers where practical (image loading,
@@ -146,12 +158,16 @@ text prompts still flow via the selector).
 - `generate_character_reference(book, name)` → runs the action for the named
   character, returns `{:ok, updated_book}` with that character's
   `reference_image_path` filled (mirrors the `put_cover_raw` update pattern).
-- `attach_character_reference(book, name)` → re-attach the newest
-  `character_<slug>_*` for one character via `ImageOps.latest_raw/1` without
-  regenerating (mirrors `compose_cover`'s `latest_raw` re-attach). Returns the
-  book unchanged if no such file exists.
+- `attach_character_reference(book, name)` → re-attach the newest saved
+  reference for one character via `ImageOps.latest_raw/1` without regenerating
+  (mirrors `compose_cover`'s `latest_raw` re-attach). Returns
+  `{:error, :no_reference_image}` when nothing is saved for that character —
+  an unchanged `{:ok, book}` is indistinguishable from a real attach and would
+  buy an unconditioned spread.
 
-`ImageOps.latest_raw/1` already supports arbitrary prefixes, so no change there.
+`ImageOps.latest_raw/1` takes arbitrary prefixes, but it anchors on the trailing
+timestamp (`^prefix\d+\.png$`) rather than globbing `prefix*.png`, so one
+character's prefix cannot pick up a longer sibling's portrait.
 
 Typical IEx workflow (generate references one at a time, as desired):
 
@@ -169,7 +185,8 @@ book = CircleStory.Books.Templates.NanisMagicThread.book()
 - Add an optional `character_uri` assign (default `nil`).
 - When present: render a circle-cropped `<img>` (`border-radius:50%;
   object-fit:cover;`) in the existing circle geometry.
-- When `nil`: keep the current pink placeholder (graceful fallback).
+- When `nil`: keep the current pink placeholder (graceful fallback). A path that
+  is set but missing or undecodable also falls back, with a warning logged.
 - `Composition.cover_html/2` resolves `back_cover_character(book)` → its
   `reference_image_path`; when set, `ImageOps.fit(path, d, d)` (square, `d = 2 *
   circle_r`) then `to_data_uri/1`, passed as `character_uri`.
@@ -194,14 +211,20 @@ Unit tests use a deterministic provider fake; no live model calls are made:
   include-all failures.
 - `GenerateSpreadImage.build_request/4`: selected prompt blocks and reference
   image bytes both survive to the normalized request boundary.
+- `GenerateCharacterReference.reference_prefix/1`: stable per name, ASCII-safe,
+  and never shared by two distinct names (accented and non-Latin included).
+- `ImageOps.latest_raw/1`: the trailing-timestamp anchor excludes a longer
+  sibling built on the same prefix.
 - `PromptBuilder.user_message/2` builds `<CHARACTERS>` blocks for only the
   characters it is given; `system_prompt(:character)` includes the master style.
 - `back_cover_character/1` returns the first character.
 - `PageComponents.cover/1` and `dedication/1` render an `<img>` when the URI is
   present and the pink placeholder when it is `nil`.
 
-`GenerateCharacterReference` and the `Generator.generate_*` functions that call
-Gemini stay IEx-exercised, consistent with `GenerateSpreadImage`.
+The Gemini-calling paths — `GenerateCharacterReference.run/2` and the
+`Generator.generate_*` functions — stay IEx-exercised and `@tag :integration`
+(excluded from `mix test`), consistent with `GenerateSpreadImage`; only their
+pure helpers are unit tested.
 
 ## Out of scope
 
