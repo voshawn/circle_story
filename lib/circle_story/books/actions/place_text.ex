@@ -41,6 +41,10 @@ defmodule CircleStory.Books.Actions.PlaceText do
   # reasons internally and still returns a schema-validated object.
   @thinking_level :medium
 
+  @doc "The configured text-placement model identity."
+  @spec model() :: String.t()
+  def model, do: @model
+
   @impl true
   def run(%{image_png: png, text: text, mode: mode}, _context) do
     # Build the message with ReqLLM ContentPart structs. Plain maps like
@@ -63,14 +67,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
         "PlaceText[#{mode}] model=#{@model} thinking=#{@thinking_level} parsed=#{inspect(result)}"
       )
 
-      {:ok, result}
+      {:ok, Map.put(result, :source, :model)}
     else
       other ->
         Logger.warning(
           "PlaceText[#{mode}] falling back to default box: #{summarize_error(other)}"
         )
 
-        {:ok, default_box(mode)}
+        {:ok, Map.put(default_box(mode), :source, :fallback)}
     end
   end
 

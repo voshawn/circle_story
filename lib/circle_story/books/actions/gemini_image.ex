@@ -9,6 +9,10 @@ defmodule CircleStory.Books.Actions.GeminiImage do
 
   @model "google:gemini-3.1-flash-image"
 
+  @doc "The configured image-generation model identity."
+  @spec model() :: String.t()
+  def model, do: @model
+
   @doc "Prepend the system prompt and call the Gemini image model."
   @spec generate(String.t(), [map()], String.t()) ::
           {:ok, ReqLLM.Response.t()} | {:error, term()}

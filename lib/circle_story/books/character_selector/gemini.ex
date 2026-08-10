@@ -11,6 +11,10 @@ defmodule CircleStory.Books.CharacterSelector.Gemini do
   @model "google:gemini-3.1-flash-lite"
   @thinking_level :minimal
 
+  @doc "The configured character-selection model identity."
+  @spec model() :: String.t()
+  def model, do: @model
+
   @instructions """
   Select which candidate character names are explicitly referenced in this
   children's-book spread. A reference may occur in either the story text or

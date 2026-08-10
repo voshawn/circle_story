@@ -144,44 +144,73 @@ defmodule CircleStory.Books.Composition do
 
   # ----- bbox cache -----
 
-  # Load a cached bbox, or fetch (and cache) via PlaceText. `force_bbox: true` always refetches.
-  defp placement(raw, fitted_image, text, mode, opts) do
-    cache = ImageOps.bbox_path(raw)
-
-    if not Keyword.get(opts, :force_bbox, false) and File.exists?(cache) do
-      load_cached(cache)
-    else
-      png = ImageOps.to_png_bytes(fitted_image)
-
-      with {:ok, box} <- PlaceText.run(%{image_png: png, text: text, mode: mode}, %{}) do
-        # Caching is best-effort: the box is already computed, so a write failure
-        # (disk full, permissions) must not crash the render pipeline.
-        _ =
-          File.write(
-            cache,
-            Jason.encode!(%{
-              "bounding_box" => box.bounding_box,
-              "text_align" => Atom.to_string(box.text_align),
-              "vertical_align" => Atom.to_string(box.vertical_align)
-            })
-          )
-
-        {:ok, box}
-      end
+  @doc "Read the cached placement for raw art without making a model call."
+  @spec cached_placement(Path.t()) :: {:ok, map()} | {:error, term()}
+  def cached_placement(raw_path) do
+    case File.read(ImageOps.bbox_path(raw_path)) do
+      {:ok, encoded} -> load_cached(encoded)
+      {:error, :enoent} -> {:error, :no_cached_bounding_box}
+      {:error, reason} -> {:error, {:bounding_box_cache_read_failed, reason}}
     end
   end
 
-  defp load_cached(path) do
-    with {:ok, raw} <- File.read(path),
-         {:ok, %{"bounding_box" => bbox} = decoded} <- Jason.decode(raw) do
+  @doc false
+  @spec cache_placement(Path.t(), map()) :: :ok | {:error, term()}
+  def cache_placement(raw_path, box) do
+    File.write(
+      ImageOps.bbox_path(raw_path),
+      Jason.encode!(%{
+        "bounding_box" => box.bounding_box,
+        "text_align" => Atom.to_string(box.text_align),
+        "vertical_align" => Atom.to_string(box.vertical_align),
+        "source" => box |> Map.get(:source, :unknown) |> placement_source() |> Atom.to_string()
+      })
+    )
+  end
+
+  # Load a cached bbox, or fetch (and cache) via PlaceText. `force_bbox: true` always refetches.
+  # `cached_bbox_only: true` makes the operation provably free instead of fetching on a miss.
+  defp placement(raw, fitted_image, text, mode, opts) do
+    cache_exists? = File.exists?(ImageOps.bbox_path(raw))
+    force? = Keyword.get(opts, :force_bbox, false)
+    cached_only? = Keyword.get(opts, :cached_bbox_only, false)
+
+    cond do
+      not force? and cache_exists? ->
+        cached_placement(raw)
+
+      not force? and cached_only? ->
+        {:error, :no_cached_bounding_box}
+
+      true ->
+        png = ImageOps.to_png_bytes(fitted_image)
+
+        with {:ok, box} <- PlaceText.run(%{image_png: png, text: text, mode: mode}, %{}) do
+          # Caching is best-effort: the box is already computed, so a write failure
+          # (disk full, permissions) must not crash the render pipeline.
+          _ = cache_placement(raw, box)
+          {:ok, box}
+        end
+    end
+  end
+
+  defp load_cached(encoded) do
+    with {:ok, %{"bounding_box" => bbox} = decoded} <- Jason.decode(encoded) do
       {:ok,
        %{
          bounding_box: bbox,
          text_align: align_atom(Map.get(decoded, "text_align")),
-         vertical_align: valign_atom(Map.get(decoded, "vertical_align"))
+         vertical_align: valign_atom(Map.get(decoded, "vertical_align")),
+         source: decoded |> Map.get("source", "unknown") |> placement_source()
        }}
     end
   end
+
+  defp placement_source(:model), do: :model
+  defp placement_source("model"), do: :model
+  defp placement_source(:fallback), do: :fallback
+  defp placement_source("fallback"), do: :fallback
+  defp placement_source(_), do: :unknown
 
   defp align_atom("left"), do: :left
   defp align_atom("right"), do: :right

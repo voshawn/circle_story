@@ -129,6 +129,19 @@ defmodule CircleStory.Books.CharacterSelector do
     end
   end
 
+  @doc "Report the current selection-cache provenance without invoking the provider."
+  @spec cache_status(struct(), [Character.t()], keyword()) :: :model | :fallback | :unknown
+  def cache_status(spread, characters, opts \\ []) do
+    provider = provider(opts)
+    version = selection_version(provider)
+
+    case load_cache(cache_path(spread, characters, opts), characters) do
+      {:ok, _names, "model", ^version} -> :model
+      {:ok, _names, "fallback", _version} -> :fallback
+      _ -> :unknown
+    end
+  end
+
   @doc false
   @spec cache_path(struct(), [Character.t()], keyword()) :: Path.t()
   def cache_path(spread, characters, opts \\ []) do
