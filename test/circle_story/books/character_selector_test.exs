@@ -163,6 +163,94 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     assert cached_log =~ "using cached include-all fallback"
   end
 
+  test "a render re-selects when the cache only holds a prior include-all fallback", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 10, text: "Meet Ornella.", image_prompt: "a nursery"}
+    send(self(), {:character_selector_response, {:error, :timeout}})
+
+    capture_log(fn ->
+      assert CharacterSelector.for_spread(spread, chars(),
+               provider: CharacterSelectorProviderFake,
+               cache_dir: cache_dir
+             ) == chars()
+    end)
+
+    assert_receive {:character_selector_called, ^spread, _}
+
+    capture_log(fn ->
+      assert CharacterSelector.for_preview(spread, chars(), cache_dir: cache_dir) == chars()
+    end)
+
+    refute_receive {:character_selector_called, _, _}
+
+    send(self(), {:character_selector_response, {:ok, ["Ornella"]}})
+
+    capture_log(fn ->
+      assert CharacterSelector.for_spread(spread, chars(),
+               provider: CharacterSelectorProviderFake,
+               cache_dir: cache_dir
+             )
+             |> Enum.map(& &1.name) == ["Ornella"]
+    end)
+
+    assert_receive {:character_selector_called, ^spread, _}
+
+    assert CharacterSelector.for_spread(spread, chars(),
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           )
+           |> Enum.map(& &1.name) == ["Ornella"]
+
+    refute_receive {:character_selector_called, _, _}
+  end
+
+  test "resolves an accented name returned in another unicode normalization form", %{
+    cache_dir: cache_dir
+  } do
+    zoe = %Character{name: String.normalize("Zoë", :nfc), image_prompt: "girl"}
+    decomposed = String.normalize(zoe.name, :nfd)
+    characters = [zoe | chars()]
+    spread = %InnerSpread{position: 11, text: "Zoë waved.", image_prompt: "a garden"}
+
+    refute decomposed == zoe.name
+
+    assert select(spread, characters, [decomposed], cache_dir) == [zoe]
+    assert CharacterSelector.for_preview(spread, characters, cache_dir: cache_dir) == [zoe]
+  end
+
+  test "an off-contract provider return is an explicit include-all failure", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 12, text: "A quiet garden.", image_prompt: "x"}
+    send(self(), {:character_selector_response, :ok})
+
+    log =
+      capture_log(fn ->
+        assert CharacterSelector.for_spread(spread, chars(),
+                 provider: CharacterSelectorProviderFake,
+                 cache_dir: cache_dir
+               ) == chars()
+      end)
+
+    assert log =~ "invalid_provider_result"
+    assert log =~ "including all configured characters"
+  end
+
+  test "the provider configured for the test environment never calls a live model", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 13, text: "Meet Ornella.", image_prompt: "a nursery"}
+
+    log =
+      capture_log(fn ->
+        assert CharacterSelector.for_spread(spread, chars(), cache_dir: cache_dir) == chars()
+      end)
+
+    assert log =~ "character_selector_provider_not_available"
+    assert log =~ "including all configured characters"
+  end
+
   test "unknown names in a provider response are an explicit include-all failure", %{
     cache_dir: cache_dir
   } do

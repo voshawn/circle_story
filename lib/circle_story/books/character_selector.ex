@@ -3,11 +3,12 @@ defmodule CircleStory.Books.CharacterSelector do
   Selects the configured characters referenced by a spread.
 
   Actual rendering uses a Gemini-backed provider and caches its selected names.
-  Retries reuse that cache. Prompt previews only read the cache and never make a
-  model call; before a spread has been selected they safely include every
-  configured character. Provider, response, and cache failures are explicit in
-  logs and also fall back to every character so conditioning is never silently
-  dropped.
+  Retries reuse a cached model selection, but re-attempt selection when the cache
+  only holds a prior include-all failure fallback. Prompt previews only read the
+  cache and never make a model call; before a spread has been selected they
+  safely include every configured character. Provider, response, and cache
+  failures are explicit in logs and also fall back to every character so
+  conditioning is never silently dropped.
   """
 
   require Logger
@@ -20,8 +21,10 @@ defmodule CircleStory.Books.CharacterSelector do
   @doc """
   Select the characters for an actual spread render.
 
-  A cache miss invokes the configured provider. The selected names (including
-  the include-all failure fallback) are cached for retries and previews.
+  A cache miss invokes the configured provider. A cached include-all failure
+  fallback is also re-attempted, so a transient provider failure cannot pin a
+  spread to include-all forever. The resulting names (including a new fallback)
+  are cached for retries and previews.
   """
   @spec for_spread(struct(), [Character.t()]) :: [Character.t()]
   def for_spread(spread, characters), do: for_spread(spread, characters, [])
@@ -34,9 +37,16 @@ defmodule CircleStory.Books.CharacterSelector do
     path = cache_path(spread, characters, opts)
 
     case load_cache(path, characters) do
-      {:ok, names, source} ->
-        warn_for_cached_fallback(source)
+      {:ok, names, "model"} ->
         characters_for_names(characters, names)
+
+      {:ok, _names, "fallback"} ->
+        Logger.warning(
+          "CharacterSelector: cached selection is a prior include-all fallback; " <>
+            "selecting again for this render: #{path}"
+        )
+
+        select_and_cache(spread, characters, path, opts)
 
       :miss ->
         select_and_cache(spread, characters, path, opts)
@@ -108,9 +118,9 @@ defmodule CircleStory.Books.CharacterSelector do
     result = call_provider(provider, spread, candidate_names)
 
     with {:ok, names} <- result,
-         :ok <- validate_names(names, candidate_names) do
-      cache_best_effort(path, names, "model")
-      characters_for_names(characters, names)
+         {:ok, selected} <- resolve_names(names, candidate_names) do
+      cache_best_effort(path, selected, "model")
+      characters_for_names(characters, selected)
     else
       {:error, reason} ->
         Logger.warning(
@@ -125,7 +135,11 @@ defmodule CircleStory.Books.CharacterSelector do
 
   defp call_provider(provider, spread, candidate_names) do
     try do
-      provider.select(spread, candidate_names)
+      case provider.select(spread, candidate_names) do
+        {:ok, names} -> {:ok, names}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:invalid_provider_result, other}}
+      end
     rescue
       exception -> {:error, {:provider_exception, Exception.message(exception)}}
     catch
@@ -195,8 +209,8 @@ defmodule CircleStory.Books.CharacterSelector do
             "source" => source
           }} <- Jason.decode(contents),
          true <- source in ["model", "fallback"],
-         :ok <- validate_names(names, candidate_names) do
-      {:ok, names, source}
+         {:ok, selected} <- resolve_names(names, candidate_names) do
+      {:ok, selected, source}
     else
       {:error, reason} -> {:error, {:cache_decode_failed, reason}}
       false -> {:error, :invalid_cache_source}
@@ -204,25 +218,34 @@ defmodule CircleStory.Books.CharacterSelector do
     end
   end
 
-  defp validate_names(names, candidate_names) when is_list(names) do
-    unknown_names = names -- candidate_names
+  defp resolve_names(names, candidate_names) when is_list(names) do
+    if Enum.all?(names, &is_binary/1) do
+      configured = configured_by_normalized_name(candidate_names)
+      resolved = Enum.map(names, &Map.get(configured, normalize_name(&1)))
+      unknown_names = for {name, nil} <- Enum.zip(names, resolved), do: name
 
-    cond do
-      not Enum.all?(names, &is_binary/1) ->
-        {:error, {:invalid_selected_names, names}}
+      cond do
+        unknown_names != [] ->
+          {:error, {:unknown_selected_names, unknown_names}}
 
-      Enum.uniq(names) != names ->
-        {:error, {:duplicate_selected_names, names}}
+        Enum.uniq(resolved) != resolved ->
+          {:error, {:duplicate_selected_names, names}}
 
-      unknown_names != [] ->
-        {:error, {:unknown_selected_names, unknown_names}}
-
-      true ->
-        :ok
+        true ->
+          {:ok, resolved}
+      end
+    else
+      {:error, {:invalid_selected_names, names}}
     end
   end
 
-  defp validate_names(names, _candidate_names), do: {:error, {:invalid_selected_names, names}}
+  defp resolve_names(names, _candidate_names), do: {:error, {:invalid_selected_names, names}}
+
+  defp configured_by_normalized_name(candidate_names) do
+    Map.new(candidate_names, &{normalize_name(&1), &1})
+  end
+
+  defp normalize_name(name), do: String.normalize(name, :nfc)
 
   defp characters_for_names(characters, names) do
     selected = MapSet.new(names)
