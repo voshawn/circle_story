@@ -1,9 +1,21 @@
 defmodule CircleStory.Books.GeneratorTest do
   use ExUnit.Case, async: true
 
-  alias CircleStory.Books.{Book, Character, Generator}
+  alias CircleStory.Books.{Book, Character, CharacterSelector, Generator}
   alias CircleStory.Books.Actions.GenerateCharacterReference
   alias CircleStory.Books.Templates.NanisMagicThread
+  alias CircleStory.CharacterSelectorProviderFake
+
+  defp cache_selection(spread, characters, names, cache_dir) do
+    send(self(), {:character_selector_response, {:ok, names}})
+
+    CharacterSelector.for_spread(spread, characters,
+      provider: CharacterSelectorProviderFake,
+      cache_dir: cache_dir
+    )
+
+    assert_receive {:character_selector_called, ^spread, _candidate_names}
+  end
 
   describe "attach_character_reference/2" do
     setup do
@@ -148,24 +160,54 @@ defmodule CircleStory.Books.GeneratorTest do
   end
 
   describe "inspect_prompt/2 character selection" do
-    test "an inner spread only includes characters it names" do
-      book = NanisMagicThread.book()
-      {_system, user} = Generator.inspect_prompt(book, 1)
+    setup do
+      cache_dir =
+        Path.join(
+          [:code.priv_dir(:circle_story), "generated_images"],
+          "generator_selector_test_#{System.unique_integer([:positive])}"
+        )
 
-      # Spread 1 is all about Ornella.
+      on_exit(fn -> File.rm_rf(cache_dir) end)
+      %{cache_dir: cache_dir}
+    end
+
+    test "an inner spread reuses its rendered selection without a model call", %{
+      cache_dir: cache_dir
+    } do
+      book = NanisMagicThread.book()
+      spread = Enum.find(book.spreads, &(&1.position == 1))
+      cache_selection(spread, book.characters, ["Ornella"], cache_dir)
+
+      {_system, user} = Generator.inspect_prompt(book, 1, cache_dir: cache_dir)
+
       assert user =~ "<ORNELLA>"
       refute user =~ "<NANI>"
       refute user =~ "<ASHA>"
+      refute_receive {:character_selector_called, _, _}
     end
 
-    test "the cover includes the characters named in its art prompt" do
+    test "the cover reuses its rendered selection without a model call", %{cache_dir: cache_dir} do
       book = NanisMagicThread.book()
-      {_system, user} = Generator.inspect_prompt(book, :cover)
+      cache_selection(book.cover, book.characters, ["Nani", "Ornella"], cache_dir)
 
-      # Cover art names Nani and baby Ornella, not Asha.
+      {_system, user} = Generator.inspect_prompt(book, :cover, cache_dir: cache_dir)
+
       assert user =~ "<NANI>"
       assert user =~ "<ORNELLA>"
       refute user =~ "<ASHA>"
+      refute_receive {:character_selector_called, _, _}
+    end
+
+    test "an uncached preview includes every character and never calls the provider", %{
+      cache_dir: cache_dir
+    } do
+      book = NanisMagicThread.book()
+      {_system, user} = Generator.inspect_prompt(book, 1, cache_dir: cache_dir)
+
+      assert user =~ "<ORNELLA>"
+      assert user =~ "<NANI>"
+      assert user =~ "<ASHA>"
+      refute_receive {:character_selector_called, _, _}
     end
   end
 end

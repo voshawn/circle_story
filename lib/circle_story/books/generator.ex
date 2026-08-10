@@ -111,16 +111,25 @@ defmodule CircleStory.Books.Generator do
     end
   end
 
-  @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
+  @doc """
+  Returns `{system_prompt, user_message}` for the given page without an API call.
+
+  A cached render selection is reused when available. Before the first render,
+  the preview conservatively includes all configured characters.
+  """
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
-  def inspect_prompt(%Book{} = book, :cover) do
-    selected = CharacterSelector.for_spread(book.cover, book.characters)
+  def inspect_prompt(%Book{} = book, page), do: inspect_prompt(book, page, [])
+
+  @doc false
+  @spec inspect_prompt(Book.t(), :cover | 1..9, keyword()) :: {String.t(), String.t()}
+  def inspect_prompt(%Book{} = book, :cover, selector_opts) do
+    selected = CharacterSelector.for_preview(book.cover, book.characters, selector_opts)
     {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, selected)}
   end
 
-  def inspect_prompt(%Book{} = book, position) when is_integer(position) do
+  def inspect_prompt(%Book{} = book, position, selector_opts) when is_integer(position) do
     spread = Enum.find(book.spreads, &(&1.position == position))
-    selected = CharacterSelector.for_spread(spread, book.characters)
+    selected = CharacterSelector.for_preview(spread, book.characters, selector_opts)
     {PromptBuilder.system_prompt(:inner), PromptBuilder.user_message(spread, selected)}
   end
 

@@ -25,9 +25,10 @@ and the `NanisMagicThread` template, using local files and in-memory structs.
 - **Reference trigger:** Generate an AI reference for **every** character.
   Condition on `source_image + prompt` when a source photo exists; otherwise
   generate from the prompt alone. Maximizes cross-spread consistency.
-- **Character selection for spreads:** **Name matching** — inject only the
-  characters whose name appears in the spread's `text` or `image_prompt`. No LLM
-  call.
+- **Character selection for spreads:** Gemini 3.1 Flash-Lite selects configured
+  names from the spread's `text` and `image_prompt` before an actual render. The
+  result is cached; previews only read that cache and never initiate a paid call.
+  A selection failure warns and includes all configured characters.
 - **Back cover character:** `List.first(book.characters)` for now, behind a
   `back_cover_character/1` helper so the rule can change later.
 - **Reference image style:** Single clean portrait/figure on a soft plain
@@ -112,25 +113,28 @@ judgment; do not over-refactor.
 - Add `system_prompt(:character)` — master style + portrait composition rules.
 - Add a single-character message builder (e.g. `character_message/1`) wrapping
   one character's prompt in the `<CHARACTERS>` structure.
-- Change `user_message/2` to accept an already-filtered list of characters (the
-  caller does the name matching) — it builds `<CHARACTERS>` blocks only for the
-  characters it is given.
+- Change `user_message/2` to accept an already-selected list of characters — it
+  builds `<CHARACTERS>` blocks only for the characters it is given.
 
 ## Character selection: `CharacterSelector`
 
-New module `lib/circle_story/books/character_selector.ex`. This is the **single
-seam** for "which characters belong in this spread." Callers depend only on
-`for_spread/2`; the internal strategy (name matching now, an LLM call later) is
-hidden and swappable without touching any caller.
+`lib/circle_story/books/character_selector.ex` is the single seam for "which
+characters belong in this spread." `for_spread/2` is used only by actual spread
+rendering. On a cache miss it calls `CharacterSelector.Gemini`, which uses
+`google:gemini-3.1-flash-lite` structured output to return exact names from the
+configured candidate list. This handles names embedded in space-free scripts
+without adding language-specific boundary rules.
 
-- `for_spread(spread, characters)` → the subset of `characters` that appear in
-  the spread. **Current strategy — name matching:** a character is selected when
-  its `name` appears in `spread.text` **or** `spread.image_prompt`,
-  case-insensitive, matched on unicode word boundaries (so "Asha" does not match
-  inside another word, and accented names like "José" match their own mention).
-- For the cover (no `text`), match against `cover.image_prompt` only.
-- If nothing matches, returns `[]` — the scene prompt stands alone; no
-  characters are injected.
+Selections are stored as JSON under
+`priv/generated_images/character_selections/`, keyed by the spread text, image
+prompt, and configured names. Retries reuse the same result. Cached names are
+validated against the current candidates before use.
+
+`for_preview/2` only reads this cache. A preview before the first render includes
+all configured characters and never initiates a model call. Provider errors,
+invalid responses, and cache errors are logged explicitly. A provider failure
+uses and caches an include-all fallback so a paid image render never silently
+loses character conditioning.
 
 Wiring in `GenerateSpreadImage.run/2`:
 1. Compute `selected = CharacterSelector.for_spread(spread, characters)`.
@@ -139,10 +143,10 @@ Wiring in `GenerateSpreadImage.run/2`:
 3. Pass `selected` to `load_reference_images/1`, which attaches a reference
    image **only for characters that have a generated `reference_image_path`**.
    A selected character with no generated reference still contributes its text
-   prompt but no image (existing `Enum.filter(& &1.reference_image_path)`
-   behavior).
+   prompt but no image.
 
-`Generator.inspect_prompt/2` uses the same selector so previews stay accurate.
+`Generator.inspect_prompt/2` uses `for_preview/2`, so it reuses a cached render
+selection without creating a paid selection call.
 
 ## Generator orchestration
 
@@ -200,11 +204,13 @@ which character appears in the back-cover circle.
 
 ## Testing
 
-Unit tests only (no model calls, consistent with the existing untested
-Gemini-calling actions):
+Unit tests use a deterministic provider fake; no live model calls are made:
 
-- `CharacterSelector.for_spread/2`: selected subset, case-insensitivity,
-  no-match → `[]`, word-boundary/substring safety including accented names.
+- `CharacterSelector.for_spread/2`: ASCII, accented Latin, prefix safety, and a
+  space-free CJK mention; cache reuse; preview behavior; and explicit
+  include-all failures.
+- `GenerateSpreadImage.build_request/4`: selected prompt blocks and reference
+  image bytes both survive to the normalized request boundary.
 - `GenerateCharacterReference.reference_prefix/1`: stable per name, ASCII-safe,
   and never shared by two distinct names (accented and non-Latin included).
 - `ImageOps.latest_raw/1`: the trailing-timestamp anchor excludes a longer
@@ -225,9 +231,4 @@ pure helpers are unit tested.
 - Upload UI / LiveView.
 - Persistence / storage buckets (paths are in-memory only for now).
 - Changing the `back_cover_character/1` rule beyond "first character".
-- Swapping `CharacterSelector` from name matching to an LLM strategy (the seam
-  exists; the swap itself is future work). Names in scripts without word
-  separators (CJK) are never selected, because `\b` has no boundary to find
-  there; that is a known limitation deferred to the selector swap, not a bug in
-  the current strategy.
 - Reference character sheets / multi-pose references.
