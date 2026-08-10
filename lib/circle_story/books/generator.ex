@@ -6,6 +6,15 @@ defmodule CircleStory.Books.Generator do
 
       book = CircleStory.Books.Templates.NanisMagicThread.book()
 
+      # One AI reference portrait per character, so the same face recurs across
+      # spreads. Do this first: spreads only get conditioned on the characters
+      # whose reference is already attached to the book you pass in.
+      {:ok, book} = CircleStory.Books.Generator.generate_character_reference(book, "Ornella")
+
+      # ...or, in a fresh session, re-attach the newest saved portrait instead of
+      # paying to regenerate it ({:error, :no_reference_image} if none is saved)
+      {:ok, book} = CircleStory.Books.Generator.attach_character_reference(book, "Ornella")
+
       # Full path: generate art + bounding box + render component -> print-ready PNG
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.generate_cover(book)
       {:ok, %{image_path: path}} = CircleStory.Books.Generator.generate_spread(book, 1)
@@ -18,6 +27,8 @@ defmodule CircleStory.Books.Generator do
 
   alias CircleStory.Books.{
     Book,
+    Character,
+    CharacterSelector,
     Composition,
     CoverSpread,
     DedicationSpread,
@@ -25,6 +36,7 @@ defmodule CircleStory.Books.Generator do
     PromptBuilder
   }
 
+  alias CircleStory.Books.Actions.GenerateCharacterReference
   alias CircleStory.Books.Actions.GenerateSpreadImage
   alias CircleStory.Books.Composition.ImageOps
 
@@ -72,15 +84,44 @@ defmodule CircleStory.Books.Generator do
 
   def compose_dedication(%Book{dedication: nil}), do: {:error, :no_dedication}
 
+  @doc "Generate an AI reference portrait for one character; returns the updated book."
+  @spec generate_character_reference(Book.t(), String.t()) :: {:ok, Book.t()} | {:error, term()}
+  def generate_character_reference(%Book{} = book, name) do
+    with {:ok, character} <- fetch_character(book, name),
+         {:ok, %{image_path: path}} <-
+           GenerateCharacterReference.run(%{character: character}, %{}) do
+      {:ok, put_character_reference(book, name, path)}
+    end
+  end
+
+  @doc """
+  Re-attach the newest saved reference for one character without regenerating.
+
+  Returns `{:error, :no_reference_image}` when nothing is saved for that
+  character: an unchanged `{:ok, book}` would be indistinguishable from a real
+  attach, and the caller would go on to pay for a spread with no conditioning.
+  """
+  @spec attach_character_reference(Book.t(), String.t()) :: {:ok, Book.t()} | {:error, term()}
+  def attach_character_reference(%Book{} = book, name) do
+    with {:ok, _character} <- fetch_character(book, name) do
+      case ImageOps.latest_raw(GenerateCharacterReference.reference_prefix(name)) do
+        {:ok, path} -> {:ok, put_character_reference(book, name, path)}
+        {:error, :no_raw_art} -> {:error, :no_reference_image}
+      end
+    end
+  end
+
   @doc "Returns `{system_prompt, user_message}` for the given page without an API call."
   @spec inspect_prompt(Book.t(), :cover | 1..9) :: {String.t(), String.t()}
   def inspect_prompt(%Book{} = book, :cover) do
-    {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, book.characters)}
+    selected = CharacterSelector.for_spread(book.cover, book.characters)
+    {PromptBuilder.system_prompt(:cover), PromptBuilder.user_message(book.cover, selected)}
   end
 
   def inspect_prompt(%Book{} = book, position) when is_integer(position) do
     spread = Enum.find(book.spreads, &(&1.position == position))
-    {PromptBuilder.system_prompt(:inner), PromptBuilder.user_message(spread, book.characters)}
+    selected = CharacterSelector.for_spread(spread, book.characters)
+    {PromptBuilder.system_prompt(:inner), PromptBuilder.user_message(spread, selected)}
   end
 
   defp fetch_spread(%Book{spreads: spreads}, position) do
@@ -88,6 +129,23 @@ defmodule CircleStory.Books.Generator do
       nil -> {:error, "no spread at position #{position}"}
       %InnerSpread{} = spread -> {:ok, spread}
     end
+  end
+
+  defp fetch_character(%Book{characters: characters}, name) do
+    case Enum.find(characters, &(&1.name == name)) do
+      nil -> {:error, "no character named #{name}"}
+      %Character{} = character -> {:ok, character}
+    end
+  end
+
+  defp put_character_reference(%Book{characters: characters} = book, name, path) do
+    characters =
+      Enum.map(characters, fn
+        %Character{name: ^name} = c -> %{c | reference_image_path: path}
+        c -> c
+      end)
+
+    %{book | characters: characters}
   end
 
   defp put_cover_raw(%Book{cover: %CoverSpread{} = cover} = book, raw) do

@@ -12,4 +12,8 @@ defmodule CircleStory.Books.Book do
           spreads: [InnerSpread.t()],
           characters: [Character.t()]
         }
+
+  @doc "The character shown in the back-cover circle (currently the first)."
+  @spec back_cover_character(t()) :: Character.t() | nil
+  def back_cover_character(%__MODULE__{characters: characters}), do: List.first(characters)
 end

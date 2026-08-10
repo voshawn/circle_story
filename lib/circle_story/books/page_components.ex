@@ -66,6 +66,7 @@ defmodule CircleStory.Books.PageComponents do
   end
 
   attr :text, :string, required: true
+  attr :dedication_uri, :string, default: nil
 
   def dedication(assigns) do
     {w, h} = Layout.inner_dims()
@@ -99,8 +100,13 @@ defmodule CircleStory.Books.PageComponents do
       >
         {@text}
       </.fit_text>
-      <%!-- Placeholder for the user's dedication photo (future: real image) --%>
-      <div style={"position:absolute;left:#{@circle_cx - @radius}px;top:#{@circle_cy - @radius}px;width:#{2 * @radius}px;height:#{2 * @radius}px;border-radius:50%;background:pink;"}>
+      <%!-- User's dedication photo (circle-cropped), or a placeholder --%>
+      <div style={"position:absolute;left:#{@circle_cx - @radius}px;top:#{@circle_cy - @radius}px;width:#{2 * @radius}px;height:#{2 * @radius}px;border-radius:50%;overflow:hidden;background:#{if @dedication_uri, do: "transparent", else: "pink"};"}>
+        <img
+          :if={@dedication_uri}
+          src={@dedication_uri}
+          style="width:100%;height:100%;object-fit:cover;"
+        />
       </div>
     </div>
     """
@@ -117,6 +123,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :fill, :string, required: true
   attr :ink, :string, required: true
   attr :debug_rect, :map, default: nil, doc: "raw AI box (panel-local) to overlay (debug only)"
+  attr :character_uri, :string, default: nil
 
   def cover(assigns) do
     {w, h} = Layout.cover_dims()
@@ -159,8 +166,13 @@ defmodule CircleStory.Books.PageComponents do
         {@tagline}
       </.fit_text>
 
-      <%!-- Placeholder for the character reference image (future: real image) --%>
-      <div style={"position:absolute;left:#{div(@back.w, 2) - @circle_r}px;top:#{div(@back.h, 2) - @circle_r}px;width:#{2 * @circle_r}px;height:#{2 * @circle_r}px;border-radius:50%;background:pink;"}>
+      <%!-- Back-cover character reference (circle-cropped), or a placeholder --%>
+      <div style={"position:absolute;left:#{div(@back.w, 2) - @circle_r}px;top:#{div(@back.h, 2) - @circle_r}px;width:#{2 * @circle_r}px;height:#{2 * @circle_r}px;border-radius:50%;overflow:hidden;background:#{if @character_uri, do: "transparent", else: "pink"};"}>
+        <img
+          :if={@character_uri}
+          src={@character_uri}
+          style="width:100%;height:100%;object-fit:cover;"
+        />
       </div>
 
       <div style={"position:absolute;left:#{@inset}px;bottom:#{@inset}px;font-family:'Nunito';font-weight:400;font-size:44px;line-height:1.4;color:#{@ink};text-align:left;"}>

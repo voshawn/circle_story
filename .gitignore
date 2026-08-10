@@ -55,3 +55,7 @@ npm-debug.log
 .superpowers/
 /priv/generated_images/*.bbox.json
 /priv/print_ready/
+
+# Source photos dropped in by hand (real people, incl. children) - never commit
+/priv/source_images/*
+!/priv/source_images/.gitkeep
