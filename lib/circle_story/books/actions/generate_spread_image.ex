@@ -15,18 +15,34 @@ defmodule CircleStory.Books.Actions.GenerateSpreadImage do
 
   @impl true
   def run(%{spread: spread, characters: characters, spread_type: spread_type}, _context) do
-    selected = CharacterSelector.for_spread(spread, characters)
-    system_prompt = PromptBuilder.system_prompt(spread_type)
-    user_msg = PromptBuilder.user_message(spread, selected)
-    ref_image_parts = load_reference_images(selected)
-    messages = GeminiImage.build_messages(user_msg, ref_image_parts)
+    request = build_request(spread, characters, spread_type)
 
     with {:ok, response} <-
-           GeminiImage.generate(system_prompt, messages, aspect_ratio(spread_type)),
+           GeminiImage.generate(
+             request.system_prompt,
+             request.messages,
+             request.aspect_ratio
+           ),
          {:ok, image_binary} <- GeminiImage.extract_image(response),
          {:ok, path} <- save_image(image_binary, spread, spread_type) do
       {:ok, %{image_path: path}}
     end
+  end
+
+  @doc false
+  @spec build_request(struct(), [Character.t()], :inner | :cover, keyword()) :: map()
+  def build_request(spread, characters, spread_type, selector_opts \\ []) do
+    selected = CharacterSelector.for_spread(spread, characters, selector_opts)
+    system_prompt = PromptBuilder.system_prompt(spread_type)
+    user_message = PromptBuilder.user_message(spread, selected)
+    reference_images = load_reference_images(selected)
+
+    %{
+      aspect_ratio: aspect_ratio(spread_type),
+      messages: GeminiImage.build_messages(user_message, reference_images),
+      selected_characters: selected,
+      system_prompt: system_prompt
+    }
   end
 
   defp load_reference_images(characters) do

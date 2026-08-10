@@ -44,6 +44,7 @@ npm-debug.log
 /priv/generated_images/*.jpg
 /priv/generated_images/*.jpeg
 /priv/generated_images/*.webp
+/priv/generated_images/character_selections/
 
 # Environment Variables
 .env
