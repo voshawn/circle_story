@@ -5,15 +5,16 @@ defmodule CircleStory.Books.CharacterSelector do
   Actual rendering uses a Gemini-backed provider and caches its selected names.
   Retries reuse a cached model selection, but re-attempt selection when the cache
   only holds a prior include-all failure fallback. Prompt previews only read the
-  cache and never make a model call; before a spread has been selected they
-  safely include every configured character. Provider, response, and cache
-  failures are explicit in logs and also fall back to every character so
-  conditioning is never silently dropped.
+  cache and never make a model call; until a spread has a current model
+  selection they safely include every configured character. Provider, response,
+  and cache failures are explicit in logs and also fall back to every character
+  so conditioning is never silently dropped.
 
   Each cache entry records the provider's
   `c:CircleStory.Books.CharacterSelector.Provider.selection_version/0`, so
   changing the model or its instructions makes a render select again instead of
-  reusing an entry produced by the previous configuration.
+  reusing an entry produced by the previous configuration, and makes a preview
+  include every character rather than serving a superseded selection.
   """
 
   require Logger
@@ -78,8 +79,12 @@ defmodule CircleStory.Books.CharacterSelector do
   @doc """
   Return the cached selection for a prompt preview without making a model call.
 
-  When no valid cache exists, every configured character is returned. This keeps
-  an unrendered preview conservative instead of silently omitting conditioning.
+  Only a cached model selection recorded under the provider's current selection
+  version is reused. A missing, invalid, superseded, or unreadable-version entry
+  returns every configured character instead, so an unrendered or stale preview
+  stays conservative rather than silently omitting conditioning. Reading the
+  provider's selection version is a pure call, so a preview never reaches the
+  model.
   """
   @spec for_preview(struct(), [Character.t()], keyword()) :: [Character.t()]
   def for_preview(spread, characters, opts \\ [])
@@ -88,11 +93,26 @@ defmodule CircleStory.Books.CharacterSelector do
 
   def for_preview(spread, characters, opts) do
     path = cache_path(spread, characters, opts)
+    version = selection_version(provider(opts))
 
     case load_cache(path, characters) do
-      {:ok, names, source, _version} ->
-        warn_for_cached_fallback(source)
+      {:ok, names, "model", ^version} ->
         characters_for_names(characters, names)
+
+      {:ok, _names, "model", _superseded} ->
+        Logger.warning(
+          "CharacterSelector: cached selection predates the current selection version; " <>
+            "preview includes all characters without a model call: #{path}"
+        )
+
+        characters
+
+      {:ok, _names, "fallback", _version} ->
+        Logger.warning(
+          "CharacterSelector: using cached include-all fallback from a prior selection failure"
+        )
+
+        characters
 
       :miss ->
         characters
@@ -184,7 +204,7 @@ defmodule CircleStory.Books.CharacterSelector do
   defp unknown_selection_version(reason) do
     Logger.warning(
       "CharacterSelector: could not read the provider's selection version; no cached selection " <>
-        "will be reused for this render (#{summarize_error(reason)})"
+        "will be reused (#{summarize_error(reason)})"
     )
 
     {:unknown_selection_version, System.unique_integer([:positive])}
@@ -287,14 +307,6 @@ defmodule CircleStory.Books.CharacterSelector do
     selected = MapSet.new(names)
     Enum.filter(characters, &MapSet.member?(selected, &1.name))
   end
-
-  defp warn_for_cached_fallback("fallback") do
-    Logger.warning(
-      "CharacterSelector: using cached include-all fallback from a prior selection failure"
-    )
-  end
-
-  defp warn_for_cached_fallback("model"), do: :ok
 
   defp summarize_error(error), do: inspect(error, limit: 8, printable_limit: 300)
 end

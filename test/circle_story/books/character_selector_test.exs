@@ -67,22 +67,56 @@ defmodule CircleStory.Books.CharacterSelectorTest do
            ]
   end
 
-  test "whole-name selection does not confuse Asha with Sasha", %{cache_dir: cache_dir} do
-    spread = %InnerSpread{position: 4, text: "Sasha felt ashamed.", image_prompt: "x"}
-    assert select(spread, chars(), [], cache_dir) == []
+  test "a longer word containing a candidate never resolves to that character", %{
+    cache_dir: cache_dir
+  } do
+    zoe = %Character{name: "Zoë", image_prompt: "girl"}
 
-    prompt = Gemini.selection_prompt(spread, ["Asha"])
-    assert prompt =~ ~s(CANDIDATE_NAMES: ["Asha"])
-    assert prompt =~ ~s(STORY_TEXT: "Sasha felt ashamed.")
+    cases = [
+      {%InnerSpread{position: 4, text: "Sasha felt ashamed.", image_prompt: "x"}, chars(),
+       "Sasha"},
+      {%InnerSpread{position: 6, text: "The zoëtrope spun.", image_prompt: "a fair"}, [zoe],
+       "Zoëtrope"}
+    ]
+
+    for {spread, characters, containing_name} <- cases do
+      send(self(), {:character_selector_response, {:ok, [containing_name]}})
+
+      log =
+        capture_log(fn ->
+          assert CharacterSelector.for_spread(spread, characters,
+                   provider: CharacterSelectorProviderFake,
+                   cache_dir: cache_dir
+                 ) == characters
+        end)
+
+      assert log =~ "unknown_selected_names"
+      assert log =~ "including all configured characters"
+    end
   end
 
-  test "preserves accented-name selection and prefix safety", %{cache_dir: cache_dir} do
-    zoe = %Character{name: "Zoë", image_prompt: "girl"}
-    selected_spread = %InnerSpread{position: 5, text: "Zoë waved.", image_prompt: "a garden"}
-    prefix_spread = %InnerSpread{position: 6, text: "The zoëtrope spun.", image_prompt: "a fair"}
+  test "the emitted selection schema rejects a name that merely contains a candidate" do
+    {:ok, %{compiled: compiled}} = ReqLLM.Schema.compile(Gemini.object_schema(["Asha", "Zoë"]))
 
-    assert select(selected_spread, [zoe], ["Zoë"], cache_dir) == [zoe]
-    assert select(prefix_spread, [zoe], [], cache_dir) == []
+    assert {:ok, _} = NimbleOptions.validate([character_names: ["Asha", "Zoë"]], compiled)
+
+    assert {:error, %NimbleOptions.ValidationError{}} =
+             NimbleOptions.validate([character_names: ["Sasha"]], compiled)
+
+    assert {:error, %NimbleOptions.ValidationError{}} =
+             NimbleOptions.validate([character_names: ["Zoëtrope"]], compiled)
+  end
+
+  test "selects an accented name and reuses it for a preview", %{cache_dir: cache_dir} do
+    zoe = %Character{name: "Zoë", image_prompt: "girl"}
+    spread = %InnerSpread{position: 5, text: "Zoë waved.", image_prompt: "a garden"}
+
+    assert select(spread, [zoe], ["Zoë"], cache_dir) == [zoe]
+
+    assert CharacterSelector.for_preview(spread, [zoe],
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           ) == [zoe]
   end
 
   test "selects a CJK name in space-free text", %{cache_dir: cache_dir} do
@@ -118,7 +152,10 @@ defmodule CircleStory.Books.CharacterSelectorTest do
            )
            |> Enum.map(& &1.name) == ["Ornella"]
 
-    assert CharacterSelector.for_preview(spread, chars(), cache_dir: cache_dir)
+    assert CharacterSelector.for_preview(spread, chars(),
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           )
            |> Enum.map(& &1.name) == ["Ornella"]
 
     refute_receive {:character_selector_called, _, _}
@@ -157,8 +194,10 @@ defmodule CircleStory.Books.CharacterSelectorTest do
 
     cached_log =
       capture_log(fn ->
-        assert CharacterSelector.for_preview(spread, characters, cache_dir: cache_dir) ==
-                 characters
+        assert CharacterSelector.for_preview(spread, characters,
+                 provider: CharacterSelectorProviderFake,
+                 cache_dir: cache_dir
+               ) == characters
       end)
 
     assert cached_log =~ "using cached include-all fallback"
@@ -180,7 +219,10 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     assert_receive {:character_selector_called, ^spread, _}
 
     capture_log(fn ->
-      assert CharacterSelector.for_preview(spread, chars(), cache_dir: cache_dir) == chars()
+      assert CharacterSelector.for_preview(spread, chars(),
+               provider: CharacterSelectorProviderFake,
+               cache_dir: cache_dir
+             ) == chars()
     end)
 
     refute_receive {:character_selector_called, _, _}
@@ -217,7 +259,11 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     refute decomposed == zoe.name
 
     assert select(spread, characters, [decomposed], cache_dir) == [zoe]
-    assert CharacterSelector.for_preview(spread, characters, cache_dir: cache_dir) == [zoe]
+
+    assert CharacterSelector.for_preview(spread, characters,
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           ) == [zoe]
   end
 
   test "an off-contract provider return is an explicit include-all failure", %{
@@ -275,7 +321,10 @@ defmodule CircleStory.Books.CharacterSelectorTest do
              "Ornella"
            ]
 
-    assert CharacterSelector.for_preview(spread, chars(), cache_dir: cache_dir)
+    assert CharacterSelector.for_preview(spread, chars(),
+             provider: CharacterSelectorProviderFake,
+             cache_dir: cache_dir
+           )
            |> Enum.map(& &1.name) == ["Ornella"]
   end
 
@@ -333,6 +382,46 @@ defmodule CircleStory.Books.CharacterSelectorTest do
     end)
 
     assert_receive {:character_selector_called, ^spread, _}
+  end
+
+  test "a preview includes all characters when its cached selection is superseded", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 17, text: "Meet Ornella.", image_prompt: "a nursery"}
+
+    assert select(spread, chars(), ["Ornella"], cache_dir) |> Enum.map(& &1.name) == ["Ornella"]
+
+    Process.put(:character_selector_fake_version, :v2)
+
+    log =
+      capture_log(fn ->
+        assert CharacterSelector.for_preview(spread, chars(),
+                 provider: CharacterSelectorProviderFake,
+                 cache_dir: cache_dir
+               ) == chars()
+      end)
+
+    assert log =~ "predates the current selection version"
+    refute_receive {:character_selector_called, _, _}
+  end
+
+  test "a preview includes all characters when the selection version cannot be read", %{
+    cache_dir: cache_dir
+  } do
+    spread = %InnerSpread{position: 18, text: "Meet Ornella.", image_prompt: "a nursery"}
+
+    assert select(spread, chars(), ["Ornella"], cache_dir) |> Enum.map(& &1.name) == ["Ornella"]
+
+    log =
+      capture_log(fn ->
+        assert CharacterSelector.for_preview(spread, chars(),
+                 provider: CharacterSelectorProviderUnversioned,
+                 cache_dir: cache_dir
+               ) == chars()
+      end)
+
+    assert log =~ "could not read the provider's selection version"
+    refute_receive {:character_selector_called, _, _}
   end
 
   test "unknown names in a provider response are an explicit include-all failure", %{

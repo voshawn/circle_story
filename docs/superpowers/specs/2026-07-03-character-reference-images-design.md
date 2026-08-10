@@ -133,8 +133,12 @@ again when the cached entry is an include-all failure fallback or was produced
 under a different `Provider.selection_version/0` (model or instructions), so
 neither a transient failure nor a superseded model can pin a spread forever.
 
-`for_preview/2` only reads this cache. A preview before the first render includes
-all configured characters and never initiates a model call. Provider errors,
+`for_preview/2` only reads this cache, and reuses an entry only when it is a
+model selection recorded under the current `Provider.selection_version/0`
+(reading that version is a pure call). A preview before the first render, or one
+whose cached entry is a fallback, is superseded, or has an unreadable version,
+warns and includes all configured characters; it never initiates a model call.
+Provider errors,
 invalid responses, and cache errors are logged explicitly. A provider failure
 uses and caches an include-all fallback so a paid image render never silently
 loses character conditioning.
@@ -207,11 +211,17 @@ which character appears in the back-cover circle.
 
 ## Testing
 
-Unit tests use a deterministic provider fake; no live model calls are made:
+Selector behavior is unit tested through deterministic provider fakes, and the
+real `CharacterSelector.Gemini` adapter through a stubbed local HTTP plug; no
+live model calls are made anywhere:
 
 - `CharacterSelector.for_spread/2`: ASCII, accented Latin, prefix safety, and a
-  space-free CJK mention; cache reuse; preview behavior; and explicit
-  include-all failures.
+  space-free CJK mention; cache reuse; preview behavior (including a superseded
+  selection version); and explicit include-all failures.
+- `CharacterSelector.Gemini.select/3` against a `Plug` stub: the emitted request
+  contract (thinking level, candidate-constrained response schema, prompt
+  fields), the decoded selection, and error paths. Model interpretation is never
+  asserted.
 - `GenerateSpreadImage.build_request/4`: selected prompt blocks and reference
   image bytes both survive to the normalized request boundary.
 - `GenerateCharacterReference.reference_prefix/1`: stable per name, ASCII-safe,

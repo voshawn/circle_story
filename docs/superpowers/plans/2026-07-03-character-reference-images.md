@@ -31,7 +31,9 @@ is the authoritative contract wherever it and a task step disagree.
 > CJK names adjacent to other CJK text. The implemented contract is documented in
 > the design's `CharacterSelector` section: render-only Gemini selection, a
 > content-keyed cache reused by retries/previews, and explicit warning plus an
-> include-all fallback on failure. Tests use only the provider fake.
+> include-all fallback on failure. Selector behavior is tested through
+> deterministic provider fakes; the real `CharacterSelector.Gemini` adapter is
+> covered only through a stubbed local HTTP plug, never a live model call.
 >
 > Review also changed two smaller shapes the tasks below still record:
 > `reference_prefix/1` is now `character_<slug>_<digest>_` (Task 4), and

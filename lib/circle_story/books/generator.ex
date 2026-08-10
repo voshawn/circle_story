@@ -114,8 +114,9 @@ defmodule CircleStory.Books.Generator do
   @doc """
   Returns `{system_prompt, user_message}` for the given page without an API call.
 
-  A cached render selection is reused when available. Before the first render,
-  the preview conservatively includes all configured characters.
+  A cached render selection is reused when it matches the selector provider's
+  current selection version. Otherwise the preview conservatively includes all
+  configured characters, still without a model call.
   """
   @spec inspect_prompt(Book.t(), :cover | 1..9, keyword()) :: {String.t(), String.t()}
   def inspect_prompt(book, page, selector_opts \\ [])

@@ -195,7 +195,11 @@ defmodule CircleStory.Books.GeneratorTest do
       spread = Enum.find(book.spreads, &(&1.position == 1))
       cache_selection(spread, book.characters, ["Ornella"], cache_dir)
 
-      {_system, user} = Generator.inspect_prompt(book, 1, cache_dir: cache_dir)
+      {_system, user} =
+        Generator.inspect_prompt(book, 1,
+          provider: CharacterSelectorProviderFake,
+          cache_dir: cache_dir
+        )
 
       assert user =~ "<ORNELLA>"
       refute user =~ "<NANI>"
@@ -207,7 +211,11 @@ defmodule CircleStory.Books.GeneratorTest do
       book = NanisMagicThread.book()
       cache_selection(book.cover, book.characters, ["Nani", "Ornella"], cache_dir)
 
-      {_system, user} = Generator.inspect_prompt(book, :cover, cache_dir: cache_dir)
+      {_system, user} =
+        Generator.inspect_prompt(book, :cover,
+          provider: CharacterSelectorProviderFake,
+          cache_dir: cache_dir
+        )
 
       assert user =~ "<NANI>"
       assert user =~ "<ORNELLA>"
