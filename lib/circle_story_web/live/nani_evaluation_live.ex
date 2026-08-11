@@ -510,11 +510,15 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       basename = Path.basename(path)
       base_url = "/dev/books/nani/artifacts/#{root}/#{URI.encode(basename)}"
       stat = File.stat!(path, time: :posix)
+      # Place Text and Recompose overwrite the artifact in place, so the basename
+      # alone never changes and the browser keeps showing its cached copy. Version
+      # both URLs off the stat we already read so a rewrite moves the `img` src.
+      version = "#{stat.mtime}-#{stat.size}"
 
       %{
         basename: basename,
-        full_url: base_url,
-        thumbnail_url: base_url <> "?variant=thumbnail",
+        full_url: base_url <> "?v=#{version}",
+        thumbnail_url: base_url <> "?variant=thumbnail&v=#{version}",
         generated_at: filename_timestamp(basename),
         modified_at: format_timestamp(stat.mtime)
       }

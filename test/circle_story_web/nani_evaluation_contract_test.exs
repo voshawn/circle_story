@@ -51,6 +51,51 @@ defmodule CircleStoryWeb.NaniEvaluationContractTest do
     refute_receive {:character_selector_called, _, _}
   end
 
+  test "a same-basename composed overwrite changes the URLs used for rendering", %{dir: dir} do
+    generated_dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+    print_ready_dir = Path.join(:code.priv_dir(:circle_story), "print_ready")
+    basename = "inner_9_99#{System.unique_integer([:positive])}.png"
+    raw = Path.join(generated_dir, basename)
+    composed = Path.join(print_ready_dir, basename)
+
+    File.mkdir_p!(generated_dir)
+    File.mkdir_p!(print_ready_dir)
+    File.write!(raw, "synthetic raw fixture")
+    File.write!(composed, "first composed fixture")
+    File.touch!(composed, 1_700_000_000)
+
+    on_exit(fn ->
+      File.rm(raw)
+      File.rm(composed)
+    end)
+
+    first = NaniEvaluationLive.reconstruct(source_dir: dir)
+    first_page = Enum.find(first.pages, &(&1.page == 9))
+    first_stat = File.stat!(composed, time: :posix)
+    first_version = "#{first_stat.mtime}-#{first_stat.size}"
+
+    assert URI.decode_query(URI.parse(first_page.composed.full_url).query) == %{
+             "v" => first_version
+           }
+
+    assert URI.decode_query(URI.parse(first_page.composed.thumbnail_url).query) == %{
+             "v" => first_version,
+             "variant" => "thumbnail"
+           }
+
+    File.write!(composed, "replacement composed fixture with different bytes")
+    File.touch!(composed, 1_700_000_000)
+
+    second = NaniEvaluationLive.reconstruct(source_dir: dir)
+    second_page = Enum.find(second.pages, &(&1.page == 9))
+
+    assert second_page.composed.basename == first_page.composed.basename
+    assert second_page.composed.modified_at == first_page.composed.modified_at
+    refute second_page.composed.full_url == first_page.composed.full_url
+    refute second_page.composed.thumbnail_url == first_page.composed.thumbnail_url
+    assert second_page.raw.thumbnail_url == first_page.raw.thumbnail_url
+  end
+
   test "cold batch planning counts the exact calls driven by its sequential stages", %{dir: dir} do
     cache_dir = Path.join(dir, "empty-selection-cache")
     book = NanisMagicThread.book()
