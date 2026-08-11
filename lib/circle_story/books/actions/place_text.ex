@@ -44,7 +44,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
   @impl true
   def run(params, context), do: run(params, context, [])
 
-  @doc "Run text placement with additional ReqLLM request options."
+  @doc """
+  Run text placement with additional ReqLLM request options.
+
+  `:google_thinking_level` and `:json_repair` are owned by this module and
+  always override `request_opts`; a caller cannot change them. Strict decoding
+  (`json_repair: false`) is what keeps thought-summary prose from being repaired
+  into a plausible-looking box, so the invariant holds for every caller.
+  """
   def run(%{image_png: png, text: text, mode: mode}, _context, request_opts)
       when is_list(request_opts) do
     # Build the message with ReqLLM ContentPart structs. Plain maps like
@@ -90,7 +97,9 @@ defmodule CircleStory.Books.Actions.PlaceText do
   end
 
   # Deliberately classify errors instead of inspecting them: ReqLLM errors can
-  # contain request/response bodies, including the image and model output.
+  # contain request/response bodies, including the image and model output. The
+  # exception module name is the only part of an unrecognized error that is
+  # emitted — a struct name carries no payload, prompt, image, or credential.
   defp summarize_error({:error, %ReqLLM.Error.API.Request{status: status}})
        when is_integer(status),
        do: "model request failed (HTTP #{status})"
@@ -110,8 +119,18 @@ defmodule CircleStory.Books.Actions.PlaceText do
   defp summarize_error({:error, {:invalid_place_text_result, _}}),
     do: "structured object failed placement validation"
 
-  defp summarize_error({:error, _}), do: "model request failed"
+  defp summarize_error({:error, %mod{} = error}),
+    do: "model request failed: #{error_class_label(error)} (#{inspect(mod)})"
+
+  defp summarize_error({:error, _}), do: "model request failed: unclassified error"
   defp summarize_error(_), do: "structured output was absent"
+
+  # Every ReqLLM error is a Splode struct tagged with its error class.
+  defp error_class_label(%{class: :invalid}), do: "invalid request configuration"
+  defp error_class_label(%{class: :validation}), do: "invalid request configuration"
+  defp error_class_label(%{class: :api}), do: "provider API error"
+  defp error_class_label(%{class: :unknown}), do: "unknown error"
+  defp error_class_label(_), do: "transport or unexpected error"
 
   @doc """
   Validate and normalize a raw object map into

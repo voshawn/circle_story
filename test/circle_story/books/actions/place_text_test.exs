@@ -89,8 +89,8 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
           assert result == Map.put(PlaceText.default_box(:cover), :source, :fallback)
         end)
 
-      assert log =~ "structured output JSON could not be parsed"
-      refute log =~ "nil"
+      assert place_text_log(log) =~ "structured output JSON could not be parsed"
+      refute place_text_log(log) =~ "nil"
       refute log =~ "THOUGHT_SUMMARY_SECRET"
       refute log =~ "PROMPT_SECRET"
       refute log =~ "IMAGE_SECRET"
@@ -107,8 +107,27 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
                    )
         end)
 
-      assert log =~ "structured output was absent"
-      refute log =~ "nil"
+      assert place_text_log(log) =~ "structured output was absent"
+      refute place_text_log(log) =~ "nil"
+      refute log =~ "PROMPT_SECRET"
+      refute log =~ "IMAGE_SECRET"
+    end
+
+    test "names the error class and module for a non-provider failure" do
+      opts = Keyword.put(stub_google(Jason.encode!(@valid_object)), :temperature, "PROMPT_SECRET")
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{source: :fallback}} =
+                   PlaceText.run(
+                     %{image_png: "IMAGE_SECRET", text: "PROMPT_SECRET", mode: :inner},
+                     %{},
+                     opts
+                   )
+        end)
+
+      assert place_text_log(log) =~ "unknown error (ReqLLM.Error.Unknown.Unknown)"
+      refute place_text_log(log) =~ "nil"
       refute log =~ "PROMPT_SECRET"
       refute log =~ "IMAGE_SECRET"
     end
@@ -120,6 +139,16 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
       assert %{bounding_box: [_, _, _, _], text_align: :center} = PlaceText.default_box(:cover)
       refute PlaceText.default_box(:inner) == PlaceText.default_box(:cover)
     end
+  end
+
+  # This module is async, so `capture_log/1` can pick up lines from tests running
+  # concurrently in other modules. Narrow to the lines PlaceText itself emitted
+  # before asserting on their exact wording.
+  defp place_text_log(log) do
+    log
+    |> String.split("\n")
+    |> Enum.filter(&(&1 =~ "PlaceText["))
+    |> Enum.join("\n")
   end
 
   defp fake_response(text) do
