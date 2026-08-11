@@ -10,16 +10,27 @@ defmodule CircleStory.Books.Composition.HtmlRenderer do
 
   @fit_script """
   function fitOne(box){
+    var safe = box.querySelector('.fit-safe');
     var inner = box.querySelector('.fit-inner');
-    if(!inner){return;}
+    if(!safe || !inner){return;}
     var lo = parseFloat(box.getAttribute('data-min-font')) || 8;
     var hi = parseFloat(box.getAttribute('data-max-font')) || 400;
-    for(var i = 0; i < 22; i++){
-      var mid = (lo + hi) / 2;
-      inner.style.fontSize = mid + 'px';
-      if(inner.scrollWidth <= box.clientWidth && inner.scrollHeight <= box.clientHeight){ lo = mid; } else { hi = mid; }
+    var fits = function(){
+      return safe.clientWidth > 0 && safe.clientHeight > 0 &&
+        inner.scrollWidth <= safe.clientWidth + 0.5 &&
+        inner.scrollHeight <= safe.clientHeight + 0.5;
+    };
+    inner.style.fontSize = lo + 'px';
+    if(fits()){
+      for(var i = 0; i < 22; i++){
+        var mid = (lo + hi) / 2;
+        inner.style.fontSize = mid + 'px';
+        if(fits()){ lo = mid; } else { hi = mid; }
+      }
     }
     inner.style.fontSize = lo + 'px';
+    box.setAttribute('data-fit-font', lo.toFixed(3));
+    box.setAttribute('data-fit-overflow', fits() ? 'false' : 'true');
   }
   document.fonts.ready.then(function(){
     var boxes = document.querySelectorAll('.fit-text');

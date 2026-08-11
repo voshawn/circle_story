@@ -24,6 +24,8 @@ defmodule CircleStory.Books.Composition.HtmlRendererTest do
     assert doc =~ "fit-text"
     assert doc =~ "data-ready"
     assert doc =~ "document.fonts.ready"
+    assert doc =~ "fit-safe"
+    assert doc =~ "data-fit-overflow"
     assert doc =~ "margin:0"
   end
 

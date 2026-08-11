@@ -39,6 +39,66 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     end
   end
 
+  test "deterministic composition provenance round-trips without private content", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    quality = %{
+      contract_version: "composition-quality-v1",
+      candidate_id: "candidate-7",
+      final_rect: %{x: 140, y: 160, w: 700, h: 320},
+      adjustment: "translate_right",
+      align: :center,
+      valign: :top,
+      font_size: 61.25,
+      line_count: 4,
+      overflow: false,
+      treatment: "none",
+      metrics: %{
+        worst_tile_p10: 6.2,
+        worst_tile_low_contrast_fraction: 0.01,
+        worst_line_p05: 7.1,
+        edge_density: 0.03,
+        soft_total: 10.5
+      },
+      candidate_count: 40,
+      rejected_count: 5
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, quality)
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    assert cached.composition_quality.contract_version == "composition-quality-v1"
+    assert cached.composition_quality.final_rect == quality.final_rect
+    assert cached.composition_quality.metrics.worst_tile_p10 == 6.2
+
+    encoded = raw |> ImageOps.bbox_path() |> File.read!()
+    refute encoded =~ "story_text"
+    refute encoded =~ "image_path"
+  end
+
+  test "a superseded deterministic contract is invalidated on read", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    stale_quality = %{
+      contract_version: "composition-quality-v0",
+      candidate_id: "stale",
+      final_rect: %{x: 1, y: 1, w: 1, h: 1}
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, stale_quality)
+    assert {:ok, %{composition_quality: nil}} = Composition.cached_placement(raw)
+  end
+
   test "an old cache with no provenance loads as unknown", %{raw: raw} do
     File.write!(
       ImageOps.bbox_path(raw),
@@ -49,6 +109,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
       })
     )
 
-    assert {:ok, %{source: :unknown}} = Composition.cached_placement(raw)
+    assert {:ok, %{source: :unknown, composition_quality: nil}} =
+             Composition.cached_placement(raw)
   end
 end

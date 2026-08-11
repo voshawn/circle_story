@@ -801,6 +801,15 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp format_error(:unknown_page), do: "Unknown Nani page."
   defp format_error(:unknown_character), do: "Unknown Nani character."
   defp format_error(:invalid_action), do: "That action is not available."
+
+  defp format_error({:composition_overflow, %{minimum_font: font}}) do
+    "Story text cannot fit without clipping at the #{font}px minimum. Revise or split the page upstream."
+  end
+
+  defp format_error({:composition_quality_failed, _details}) do
+    "No deterministic text treatment passed the hard readability gates. Existing output was retained."
+  end
+
   defp format_error({:exception, message}), do: message
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
@@ -825,6 +834,21 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp placement_label(:unknown), do: "unknown · legacy cache"
   defp placement_label(:missing), do: "no placement cache"
   defp placement_label(:not_applicable), do: "not applicable"
+
+  defp format_quality_rect(%{x: x, y: y, w: width, h: height}),
+    do: "x=#{x}, y=#{y}, #{width}×#{height}px"
+
+  defp format_quality_rect(_), do: "unknown rect"
+
+  defp format_quality_metric(value) when is_number(value),
+    do: :erlang.float_to_binary(value * 1.0, decimals: 2)
+
+  defp format_quality_metric(_), do: "—"
+
+  defp format_quality_percent(value) when is_number(value),
+    do: :erlang.float_to_binary(value * 100, decimals: 1) <> "%"
+
+  defp format_quality_percent(_), do: "—"
 
   defp origin_label(session_items, key) do
     if current_session?(session_items, key),

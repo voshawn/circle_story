@@ -40,10 +40,13 @@ defmodule CircleStory.Books.PageComponents do
   attr :valign, :atom, default: :middle
   attr :color, :string, required: true
   attr :debug_rect, :map, default: nil, doc: "raw AI box to overlay (debug only)"
+  attr :text_inset, :integer, default: 0
+  attr :text_max_font, :integer, default: @max_font_body
+  attr :text_backing, :map, default: nil
 
   def inner_spread(assigns) do
     {w, h} = Layout.inner_dims()
-    assigns = assign(assigns, w: w, h: h, min_font: @min_font, max_font_body: @max_font_body)
+    assigns = assign(assigns, w: w, h: h, min_font: @min_font)
 
     ~H"""
     <div style={"position:relative;overflow:hidden;width:#{@w}px;height:#{@h}px;"}>
@@ -56,7 +59,9 @@ defmodule CircleStory.Books.PageComponents do
         font="Nunito"
         weight="700"
         min_font={@min_font}
-        max_font={@max_font_body}
+        max_font={@text_max_font}
+        inset={@text_inset}
+        backing={@text_backing}
       >
         {@text}
       </.fit_text>
@@ -124,6 +129,9 @@ defmodule CircleStory.Books.PageComponents do
   attr :ink, :string, required: true
   attr :debug_rect, :map, default: nil, doc: "raw AI box (panel-local) to overlay (debug only)"
   attr :character_uri, :string, default: nil
+  attr :text_inset, :integer, default: 0
+  attr :text_max_font, :integer, default: @max_font_title
+  attr :text_backing, :map, default: nil
 
   def cover(assigns) do
     {w, h} = Layout.cover_dims()
@@ -205,7 +213,9 @@ defmodule CircleStory.Books.PageComponents do
           font="Fredoka"
           weight="700"
           min_font={@min_font}
-          max_font={@max_font_title}
+          max_font={@text_max_font}
+          inset={@text_inset}
+          backing={@text_backing}
         >
           <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@title}</div>
           <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
@@ -229,6 +239,9 @@ defmodule CircleStory.Books.PageComponents do
   attr :italic, :boolean, default: false
   attr :min_font, :integer, default: 8
   attr :max_font, :integer, default: 400
+  attr :inset, :integer, default: 0
+  attr :backing, :map, default: nil
+  attr :candidate_id, :string, default: nil
 
   attr :valign, :atom,
     default: :middle,
@@ -240,16 +253,90 @@ defmodule CircleStory.Books.PageComponents do
     ~H"""
     <div
       class="fit-text"
+      data-candidate-id={@candidate_id}
       data-min-font={@min_font}
       data-max-font={@max_font}
-      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;display:flex;flex-direction:column;justify-content:#{valign_css(@valign)};overflow:hidden;"}
+      data-inset={@inset}
+      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;overflow:hidden;#{backing_css(@backing)}"}
     >
       <div
-        class="fit-inner"
-        style={"width:100%;text-align:#{@align};color:#{@color};line-height:1.2;font-family:'#{@font}';font-weight:#{@weight};#{if @italic, do: "font-style:italic;"}"}
+        class="fit-safe"
+        style={"position:absolute;left:#{@inset}px;right:#{@inset}px;top:#{@inset}px;bottom:#{@inset}px;display:flex;flex-direction:column;justify-content:#{valign_css(@valign)};overflow:hidden;"}
       >
-        {render_slot(@inner_block)}
+        <div
+          class="fit-inner"
+          style={"width:100%;text-align:#{@align};color:#{@color};line-height:1.2;font-family:'#{@font}';font-weight:#{@weight};#{if @italic, do: "font-style:italic;"}"}
+        >
+          {render_slot(@inner_block)}
+        </div>
       </div>
+    </div>
+    """
+  end
+
+  attr :candidates, :list, required: true
+  attr :content, :map, required: true
+  attr :role, :atom, required: true
+
+  @doc false
+  def quality_sheet(assigns) do
+    ~H"""
+    <div style="position:relative;width:1px;height:1px;overflow:visible;background:#000;">
+      <.fit_text
+        :for={candidate <- @candidates}
+        rect={%{x: 0, y: 0, w: candidate.rect.w, h: candidate.rect.h}}
+        align={candidate.align}
+        valign={candidate.valign}
+        color="#FAFAFA"
+        font={if(@role == :cover, do: "Fredoka", else: "Nunito")}
+        weight="700"
+        min_font={candidate.min_font}
+        max_font={candidate.max_font}
+        inset={candidate.inset}
+        candidate_id={candidate.id}
+      >
+        <%= if @role == :cover do %>
+          <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@content.title}</div>
+          <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
+            by {@content.author}
+          </div>
+        <% else %>
+          {@content.text}
+        <% end %>
+      </.fit_text>
+    </div>
+    """
+  end
+
+  attr :candidate, :map, required: true
+  attr :content, :map, required: true
+  attr :role, :atom, required: true
+
+  @doc false
+  def quality_mask(assigns) do
+    ~H"""
+    <div style={"position:relative;width:#{@candidate.rect.w}px;height:#{@candidate.rect.h}px;overflow:hidden;background:#000;"}>
+      <.fit_text
+        rect={%{x: 0, y: 0, w: @candidate.rect.w, h: @candidate.rect.h}}
+        align={@candidate.align}
+        valign={@candidate.valign}
+        color="#FFF"
+        font={if(@role == :cover, do: "Fredoka", else: "Nunito")}
+        weight="700"
+        min_font={@candidate.min_font}
+        max_font={@candidate.max_font}
+        inset={@candidate.inset}
+        candidate_id={@candidate.id}
+      >
+        <%= if @role == :cover do %>
+          <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@content.title}</div>
+          <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
+            by {@content.author}
+          </div>
+        <% else %>
+          {@content.text}
+        <% end %>
+      </.fit_text>
     </div>
     """
   end
@@ -261,6 +348,13 @@ defmodule CircleStory.Books.PageComponents do
   defp valign_css(:top), do: "flex-start"
   defp valign_css(:bottom), do: "flex-end"
   defp valign_css(_), do: "center"
+
+  defp backing_css(nil), do: ""
+
+  defp backing_css(%{type: :backing, color: color, opacity: opacity}) do
+    {red, green, blue} = if color == :white, do: {250, 250, 250}, else: {26, 26, 26}
+    "background:rgba(#{red},#{green},#{blue},#{opacity});border-radius:24px;"
+  end
 
   attr :rect, :map, required: true
 

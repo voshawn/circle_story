@@ -26,6 +26,25 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ ~s(data-max-font="64")
   end
 
+  test "inner_spread/1 renders the selected safety inset, font cap, and backing" do
+    html =
+      render_component(&PageComponents.inner_spread/1, %{
+        art_uri: "data:image/png;base64,AAAA",
+        text: "Safe text",
+        rect: %{x: 300, y: 200, w: 900, h: 400},
+        align: :center,
+        valign: :top,
+        color: "#1A1A1A",
+        text_inset: 48,
+        text_max_font: 56,
+        text_backing: %{type: :backing, color: :white, opacity: 0.44}
+      })
+
+    assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
+    assert html =~ ~s(data-max-font="56")
+    assert html =~ "background:rgba(250,250,250,0.44)"
+  end
+
   test "inner_spread/1 honors the vertical anchor (valign)" do
     base = %{
       art_uri: "data:image/png;base64,AAAA",
