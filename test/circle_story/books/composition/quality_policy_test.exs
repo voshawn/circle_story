@@ -520,6 +520,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     page_text = "Nani wove her fierce love into every single thread"
     document = "<html><body>#{page_text}</body></html>"
     vips_detail = String.duplicate("VipsJpeg: out of order read at line 3; ", 60)
+    other_vips_detail = String.duplicate("VipsJpeg: unable to load line 91; ", 60)
 
     result = %Result{
       candidate: evaluated_candidate("winner", 0, rect, 24, []),
@@ -530,7 +531,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       untreated:
         Attempts.summarize(:untreated, [
           evaluated_candidate("u0", 1, rect, 24, [{:image_binary_failed, vips_detail}]),
-          evaluated_candidate("u1", 2, rect, 24, [{:image_binary_failed, vips_detail}])
+          evaluated_candidate("u1", 2, rect, 24, [{:image_binary_failed, other_vips_detail}])
         ]),
       treated: Attempts.summarize(:treated, []),
       mask_render_errors: [
@@ -581,6 +582,32 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
     assert MaskFailureRenderer.page_document() =~ "Nani wove"
     refute Enum.any?(classes, &String.contains?(&1, "Nani"))
+  end
+
+  test "unlike raw reasons that share a class are summed, never overwritten" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+
+    rejected = [
+      evaluated_candidate("u0", 0, rect, 24, [{:image_binary_failed, "out of order read"}]),
+      evaluated_candidate("u1", 1, rect, 24, [{:image_binary_failed, "unable to load line 91"}]),
+      evaluated_candidate("u2", 2, rect, 24, [{:image_binary_failed, :vips_closed}]),
+      evaluated_candidate("u3", 3, rect, 24, [:local_contrast_percentile])
+    ]
+
+    attempts = Attempts.summarize(:untreated, rejected)
+
+    assert map_size(attempts.rejection_reasons) == 4
+    assert attempts.rejected == 4
+
+    provenance = Attempts.provenance(attempts)
+
+    assert provenance.rejection_reasons == %{
+             "image_binary_failed" => 2,
+             "image_binary_failed:vips_closed" => 1,
+             "local_contrast_percentile" => 1
+           }
+
+    assert provenance.rejection_reasons |> Map.values() |> Enum.sum() == provenance.rejected
   end
 
   test "a diagnostic class is capped in depth and in length" do

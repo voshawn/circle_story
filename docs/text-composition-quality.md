@@ -99,7 +99,9 @@ class built only from the atom tags naming the fault — `renderer_exit:timeout`
 payload contributing its type and nothing else, capped at four segments and 96
 characters. Attempt `rejection_reasons` keys pass through the same reduction, so
 sidecar size and privacy do not depend on what a third-party library chose to
-put in an error term. When every finalist mask fails, the composition returns
+put in an error term. That reduction is many-to-one — two libvips faults with
+different payloads share one class — so colliding counts are summed, and the
+persisted frequencies still total the `rejected` count they explain. When every finalist mask fails, the composition returns
 `{:composition_mask_render_failed, errors}`, reported to the operator as a local
 Chrome fault rather than as page content to rewrite.
 

@@ -42,8 +42,7 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
       scanned: attempts.scanned,
       passed: attempts.passed,
       rejected: attempts.rejected,
-      rejection_reasons:
-        Map.new(attempts.rejection_reasons, fn {reason, count} -> {label(reason), count} end)
+      rejection_reasons: Diagnostics.class_frequencies(attempts.rejection_reasons)
     }
   end
 
@@ -67,6 +66,4 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
   end
 
   defp decode_reasons(_reasons), do: %{}
-
-  defp label(reason), do: Diagnostics.reason_class(reason)
 end

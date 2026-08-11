@@ -23,6 +23,22 @@ defmodule CircleStory.Books.Composition.Quality.Diagnostics do
     end
   end
 
+  @doc """
+  Re-key a raw reason frequency map onto bounded classes, summing collisions.
+
+  Classing is deliberately many-to-one — two libvips faults with different
+  payloads share the `image_binary_failed` class — so counts are added rather
+  than overwritten and the totals still reconcile with `rejected`.
+  """
+  @spec class_frequencies(%{optional(term()) => non_neg_integer()}) :: %{
+          optional(String.t()) => non_neg_integer()
+        }
+  def class_frequencies(frequencies) do
+    Enum.reduce(frequencies, %{}, fn {reason, count}, classes ->
+      Map.update(classes, reason_class(reason), count, &(&1 + count))
+    end)
+  end
+
   defp tags(_reason, budget) when budget <= 0, do: []
   defp tags(reason, _budget) when is_atom(reason), do: [atom_label(reason)]
 
