@@ -42,6 +42,8 @@ defmodule CircleStory.MixProject do
     [
       {:jido_ai, "~> 2.0"},
       {:jido, "~> 2.0"},
+      # Declared directly (not just via :jido_ai) to hold the floor at 1.16.0 —
+      # see CircleStory.Books.Actions.PlaceText for why that release is required.
       {:req_llm, "~> 1.16.0"},
       {:image, "~> 0.68"},
       {:chromic_pdf, "~> 1.17"},

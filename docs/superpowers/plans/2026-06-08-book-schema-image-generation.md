@@ -6,7 +6,7 @@
 
 **Architecture:** Five plain Elixir structs represent all book data with no database layer. `PromptBuilder` assembles a hardcoded system prompt and a struct-driven user message (scene + character XML blocks). `GenerateSpreadImage` is a `Jido.Action` that calls `ReqLLM.generate_image/3` with those prompts and any character reference images, then writes the result to `priv/generated_images/`.
 
-**Tech Stack:** Elixir `defstruct` + `@type` specs, `ReqLLM` v1.14.0 (transitive via `jido_ai`), `Jido.Action` + `Jido.Exec`, `Zoi` schemas, Google Gemini API (`v1beta`).
+**Tech Stack:** Elixir `defstruct` + `@type` specs, `ReqLLM` (declared directly in `mix.exs`, which owns the version constraint), `Jido.Action` + `Jido.Exec`, `Zoi` schemas, Google Gemini API (`v1beta`).
 
 ---
 
