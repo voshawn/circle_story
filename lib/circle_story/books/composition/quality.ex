@@ -104,19 +104,19 @@ defmodule CircleStory.Books.Composition.Quality do
           end)
         end)
 
-      evaluated =
+      {evaluated, backing_scans} =
         if Enum.any?(untreated, &(&1.hard_rejections == [])) do
-          untreated
+          {untreated, 0}
         else
           backing_variants(rendered, context)
         end
 
-      {:ok,
-       %{
-         context
-         | evaluated: evaluated,
-           evidence: Map.put(context.evidence, :mask_render_errors, Enum.reverse(errors))
-       }}
+      evidence =
+        context.evidence
+        |> Map.put(:mask_render_errors, Enum.reverse(errors))
+        |> Map.put(:scored_count, length(untreated) + backing_scans)
+
+      {:ok, %{context | evaluated: evaluated, evidence: evidence}}
     end
   end
 
@@ -131,7 +131,8 @@ defmodule CircleStory.Books.Composition.Quality do
          candidate: selected,
          contract_version: context.policy.contract_version,
          candidate_count: length(context.candidates),
-         rejected_count: rejected_count
+         rejected_count: rejected_count,
+         scored_count: Map.get(context.evidence, :scored_count, length(context.evaluated))
        }}
     else
       {:error, :no_candidate_passed_hard_gates} ->
@@ -159,20 +160,30 @@ defmodule CircleStory.Books.Composition.Quality do
     |> then(fn {rendered, errors} -> {Enum.reverse(rendered), errors} end)
   end
 
+  # The bounded opacity list is walked weakest-to-strongest and abandoned at the
+  # first opacity where some finalist/ink pair clears the hard gates, so the
+  # stronger backings are never scanned once a lighter one works. Every finalist
+  # and both inks are retained at that opacity so ranking still has the full
+  # field, and the total scan count is reported for bounded-work assertions.
   defp backing_variants(rendered, context) do
-    Enum.reduce_while(context.policy.backing_opacities, [], fn opacity, _previous ->
-      variants =
-        Enum.flat_map(rendered, fn {candidate, mask} ->
-          for {ink, color} <- [black: :white, white: :black] do
-            treatment = %{type: :backing, color: color, opacity: opacity}
-            Scorer.score(context.image, candidate, mask, context.policy, ink, treatment)
-          end
+    pairs =
+      for {candidate, mask} <- rendered,
+          {ink, color} <- [black: :white, white: :black],
+          do: {candidate, mask, ink, color}
+
+    Enum.reduce_while(context.policy.backing_opacities, {[], 0}, fn opacity, {_previous, scans} ->
+      {variants, scans} =
+        Enum.map_reduce(pairs, scans, fn {candidate, mask, ink, color}, scanned ->
+          treatment = %{type: :backing, color: color, opacity: opacity}
+
+          {Scorer.score(context.image, candidate, mask, context.policy, ink, treatment),
+           scanned + 1}
         end)
 
       if Enum.any?(variants, &(&1.hard_rejections == [])) do
-        {:halt, variants}
+        {:halt, {variants, scans}}
       else
-        {:cont, variants}
+        {:cont, {variants, scans}}
       end
     end)
   end

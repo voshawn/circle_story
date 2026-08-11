@@ -10,6 +10,7 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
   alias CircleStory.Books.Composition.Luminance
   alias CircleStory.Books.Composition.Quality.Policy
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   @enforce_keys [:cell_size, :grid_w, :grid_h, :image_w, :image_h, :cells]
   defstruct @enforce_keys
@@ -24,10 +25,13 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
     grid_w = ceil_div(image_w, policy.map_cell_size)
     grid_h = ceil_div(image_h, policy.map_cell_size)
 
+    # The cell reads below index one byte per band, so non-uchar source art is
+    # cast rather than trusted to already be 8-bit.
     sampled =
       image
       |> Image.to_colorspace!(:srgb)
       |> Image.thumbnail!("#{grid_w}x#{grid_h}", resize: :force)
+      |> Operation.cast!(:VIPS_FORMAT_UCHAR)
 
     {:ok, binary} = VipsImage.write_to_binary(sampled)
     bands = Image.bands(sampled)

@@ -1,6 +1,32 @@
 defmodule CircleStory.Books.Composition.QualityPolicyTest do
   use ExUnit.Case, async: true
 
+  defmodule PartialMeasurementRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    @impl true
+    def measure(candidates, _content, _role) do
+      {:ok,
+       candidates
+       |> Enum.drop(1)
+       |> Map.new(
+         &{&1.id,
+          %{
+            font_size: nil,
+            line_count: 1,
+            lines: [],
+            overflow: false,
+            clipped: false
+          }}
+       )}
+    end
+
+    @impl true
+    def mask(_candidate, _content, _role), do: {:error, :not_used}
+  end
+
+  alias CircleStory.Books.Composition.Layout
   alias CircleStory.Books.Composition.Quality
 
   alias CircleStory.Books.Composition.Quality.{
@@ -263,6 +289,111 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert {:ok, %{id: "first"}} = Selection.choose([second, first], rect, policy)
   end
 
+  test "growth that clamps to the opposite edge still evaluates the art it absorbs" do
+    art = art_with_hostile_band(800, 400, 16, 112, 144)
+
+    policy =
+      Policy.new(:cover,
+        dimensions: {800, 400},
+        outer_inset: 16,
+        map_cell_size: 16,
+        growth_step: 32,
+        growth_steps: 1
+      )
+
+    seed = %{x: 16, y: 96, w: 96, h: 96}
+
+    context = %Context{
+      image: art,
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: Policy.bounds_for_seed(policy, seed),
+      safety_map: SafetyMap.build(art, policy)
+    }
+
+    assert seed.x == Policy.bounds_for_seed(policy, seed).x
+    assert {:ok, expanded} = Regions.expand(context)
+
+    assert expanded.safe_canvas.x + expanded.safe_canvas.w <= 112
+    assert [%{pass: false}] = expanded.evidence.region_expansion.left
+
+    assert Enum.any?(expanded.evidence.region_expansion.left, fn step ->
+             Enum.any?(step.strips, &(&1.strip.x >= 112))
+           end)
+  end
+
+  test "a candidate rejected before scoring is filtered out instead of ranked" do
+    policy = test_policy()
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+    passing = evaluated_candidate("passing", 1, rect, 24, [])
+
+    unscored = %Candidate{
+      id: "unscored",
+      index: 0,
+      rect: rect,
+      align: :center,
+      valign: :middle,
+      min_font: 18,
+      max_font: 64,
+      inset: 20,
+      origin: :seed,
+      measure: %{
+        font_size: 24.0,
+        line_count: 1,
+        lines: [],
+        overflow: false,
+        clipped: false
+      },
+      hard_rejections: [:mask_geometry_mismatch],
+      metrics: %{
+        preselection_score: 9.0,
+        preferred_ink: :black,
+        map_black: %{},
+        map_white: %{}
+      }
+    }
+
+    assert {:ok, %{id: "passing"}} = Selection.choose([unscored, passing], rect, policy)
+
+    assert {:error, :no_candidate_passed_hard_gates} =
+             Selection.choose([unscored], rect, policy)
+  end
+
+  test "an incomplete browser measurement is a rejection, not a raise" do
+    policy = test_policy(candidate_transforms: [:seed])
+    seed = %{x: 520, y: 40, w: 220, h: 220}
+
+    context = %Context{
+      image: Image.new!(800, 400, color: :white),
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: PartialMeasurementRenderer,
+      bounds: Policy.bounds_for_seed(policy, seed),
+      safe_canvas: Policy.bounds_for_seed(policy, seed)
+    }
+
+    assert {:ok, generated} = Candidates.generate(context)
+    assert length(generated.candidates) > 1
+
+    assert {:error, {:composition_overflow, %{reason: :no_candidate_fits_without_clipping}}} =
+             Candidates.measure(generated)
+  end
+
+  test "cover geometry is derived from the front panel rather than restated" do
+    front = Layout.front_region_local()
+    policy = Policy.new(:cover)
+
+    assert policy.dimensions == {front.w, front.h}
+
+    bounds = Policy.bounds_for_seed(policy, %{x: 0, y: 0, w: front.w, h: front.h})
+    assert Geometry.contains?(front, bounds)
+  end
+
   defp test_policy(overrides \\ []) do
     Policy.new(
       :inner,
@@ -292,6 +423,24 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       vertical_align: :top,
       source: :model
     }
+  end
+
+  # White art except an aligned black/white checkerboard band, which no ink can
+  # read and which therefore must block any growth step that would absorb it.
+  defp art_with_hostile_band(width, height, cell, band_x0, band_x1) do
+    squares =
+      for y <- 0..(div(height, cell) - 1),
+          x <- div(band_x0, cell)..(div(band_x1, cell) - 1),
+          rem(x + y, 2) == 0 do
+        ~s(<rect x="#{x * cell}" y="#{y * cell}" width="#{cell}" height="#{cell}" fill="#000" />)
+      end
+
+    Image.from_svg!("""
+    <svg xmlns="http://www.w3.org/2000/svg" width="#{width}" height="#{height}">
+      <rect width="100%" height="100%" fill="#fff" />
+      #{Enum.join(squares)}
+    </svg>
+    """)
   end
 
   defp evaluated_candidate(id, index, rect, font_size, rejections) do

@@ -69,8 +69,13 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     end
   end
 
+  # Raw binary reads below assume exactly one byte per band, so the source art
+  # format (a 16-bit PNG, say) is cast rather than trusted.
   defp normalize_rgb(image) do
-    image = Image.to_colorspace!(image, :srgb)
+    image =
+      image
+      |> Image.to_colorspace!(:srgb)
+      |> Operation.cast!(:VIPS_FORMAT_UCHAR)
 
     if VipsImage.bands(image) > 3 do
       Operation.extract_band!(image, 0, n: 3)
@@ -121,7 +126,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
          edge_threshold,
          state
        ) do
-    index = width * div(state_pixel_index(state), width) + rem(state_pixel_index(state), width)
+    index = state_pixel_index(state)
     x = rem(index, width)
     y = div(index, width)
 
@@ -312,24 +317,22 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
   end
 
   defp summarize(samples, policy) do
-    contrasts = Enum.map(samples, &elem(&1, 0))
+    contrasts = samples |> Enum.map(&elem(&1, 0)) |> Enum.sort()
     luminances = Enum.map(samples, &elem(&1, 1))
     count = length(samples)
     mean = Enum.sum(luminances) / count
 
     %{
-      p05: percentile(contrasts, 0.05),
-      p10: percentile(contrasts, 0.10),
+      p05: percentile(contrasts, count, 0.05),
+      p10: percentile(contrasts, count, 0.10),
       low_fraction: Enum.count(contrasts, &(&1 < policy.hard_contrast)) / count,
       variance: Enum.sum(Enum.map(luminances, &:math.pow(&1 - mean, 2))) / count,
       count: count
     }
   end
 
-  defp percentile(values, fraction) do
-    sorted = Enum.sort(values)
-    index = floor((length(sorted) - 1) * fraction)
-    Enum.at(sorted, index)
+  defp percentile(sorted, count, fraction) do
+    Enum.at(sorted, floor((count - 1) * fraction))
   end
 
   defp glyph_within_inset?(bounds, candidate) do

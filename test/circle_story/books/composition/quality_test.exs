@@ -97,6 +97,24 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert %{type: :backing, opacity: 0.44} = result.candidate.treatment
     assert result.candidate.hard_rejections == []
     assert result.candidate.metrics.worst_tile_p10 >= policy.hard_contrast
+
+    max_pairs = 2 * policy.finalist_limit
+    assert result.scored_count > 0
+    assert result.scored_count <= 2 * max_pairs
+  end
+
+  test "an untreated pass never scans any backing opacity" do
+    art = Image.new!(800, 400, color: :white)
+    policy = test_policy(candidate_transforms: [:seed], finalist_limit: 2)
+    seed = %{x: 480, y: 40, w: 280, h: 260}
+
+    assert {:ok, result} =
+             Quality.optimize(art, %{text: @story}, placement(:center, :middle), seed,
+               policy: policy
+             )
+
+    assert result.candidate.treatment == nil
+    assert result.scored_count <= 2 * policy.finalist_limit
   end
 
   test "long unbreakable text returns structured overflow at the role minimum" do

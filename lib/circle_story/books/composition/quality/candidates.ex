@@ -40,7 +40,7 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
       {:ok, measurements} ->
         measured =
           Enum.map(context.candidates, fn candidate ->
-            measure = Map.fetch!(measurements, candidate.id)
+            measure = Map.get(measurements, candidate.id)
             rejections = fit_rejections(candidate, measure, context)
             %{candidate | measure: measure, hard_rejections: rejections}
           end)
@@ -152,14 +152,40 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     ]
   end
 
+  # A renderer is an external boundary: an absent candidate id, or a field the
+  # browser could not produce (a `NaN` fit font serializes as `null`), is a hard
+  # rejection rather than a raise escaping the {:ok, _} | {:error, _} contract.
   defp fit_rejections(candidate, measure, context) do
-    []
-    |> reject_if(measure.overflow, :text_overflow)
-    |> reject_if(measure.clipped, :text_clipped)
-    |> reject_if(measure.font_size + 0.01 < candidate.min_font, :below_minimum_font)
-    |> reject_if(measure.line_count < 1, :no_rendered_lines)
-    |> reject_if(not Geometry.contains?(context.bounds, candidate.rect), :outside_page_or_fold)
+    if usable_measure?(measure) do
+      []
+      |> reject_if(measure.overflow, :text_overflow)
+      |> reject_if(measure.clipped, :text_clipped)
+      |> reject_if(measure.font_size + 0.01 < candidate.min_font, :below_minimum_font)
+      |> reject_if(measure.line_count < 1, :no_rendered_lines)
+      |> reject_if(not Geometry.contains?(context.bounds, candidate.rect), :outside_page_or_fold)
+    else
+      [:unusable_measurement]
+    end
   end
+
+  defp usable_measure?(%{
+         font_size: font_size,
+         line_count: line_count,
+         lines: lines,
+         overflow: overflow,
+         clipped: clipped
+       })
+       when is_number(font_size) and is_integer(line_count) and is_list(lines) and
+              is_boolean(overflow) and is_boolean(clipped),
+       do: Enum.all?(lines, &usable_line?/1)
+
+  defp usable_measure?(_measure), do: false
+
+  defp usable_line?(%{x: x, y: y, w: w, h: h})
+       when is_number(x) and is_number(y) and is_number(w) and is_number(h),
+       do: true
+
+  defp usable_line?(_line), do: false
 
   defp put_preselection_evidence(candidate, context) do
     line_rects =

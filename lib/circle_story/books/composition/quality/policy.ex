@@ -130,10 +130,12 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
   end
 
   defp defaults(:cover) do
+    front = Layout.front_region_local()
+
     %{
       role: :cover,
       contract_version: @contract_version,
-      dimensions: {1875, 1875},
+      dimensions: {front.w, front.h},
       outer_inset: Layout.safe_inset(),
       fold_inset: 0,
       internal_inset: 48,

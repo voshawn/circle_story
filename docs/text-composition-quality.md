@@ -100,3 +100,14 @@ busy backing, and minimum-font overflow) completes in about 8 seconds total.
 These are development measurements, not a production SLO; candidate count,
 finalist count, Chrome/font version, and quality duration should be calibrated
 before high-volume use.
+
+Full-resolution glyph scanning is the dominant cost and is explicitly bounded.
+Each finalist is scanned once per ink untreated. The backing fallback runs only
+when no untreated variant passes, walks `backing_opacities` weakest-to-strongest,
+and abandons the remaining opacities at the first opacity where some finalist
+and ink clears the hard gates — so a page that the lightest backing fixes never
+pays for the stronger ones. Worst case is
+`2 x finalists x (1 + length(backing_opacities))` scans, and the actual number is
+reported as `scored_count` on the optimizer result. Busy artwork that needs the
+strongest backing is therefore the case to calibrate against, not the no-backing
+measurement above.

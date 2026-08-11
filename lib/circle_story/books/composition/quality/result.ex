@@ -4,14 +4,15 @@ defmodule CircleStory.Books.Composition.Quality.Result do
   alias CircleStory.Books.Composition.Quality.Candidate
 
   @enforce_keys [:candidate, :contract_version, :candidate_count, :rejected_count]
-  defstruct @enforce_keys ++ [duration_ms: nil]
+  defstruct @enforce_keys ++ [duration_ms: nil, scored_count: 0]
 
   @type t :: %__MODULE__{
           candidate: Candidate.t(),
           contract_version: String.t(),
           candidate_count: non_neg_integer(),
           rejected_count: non_neg_integer(),
-          duration_ms: float() | nil
+          duration_ms: float() | nil,
+          scored_count: non_neg_integer()
         }
 
   @doc "Compact provenance suitable for the placement sidecar and development UI."

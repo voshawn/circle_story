@@ -35,9 +35,18 @@ defmodule CircleStory.Books.Composition.Quality.Regions do
       if next == current do
         {:halt, {current, Enum.reverse(evidence)}}
       else
-        strip = added_strip(current, next, direction)
-        {pass?, summary} = SafetyMap.passable_strip?(context.safety_map, strip, context.policy)
-        item = %{strip: strip, pass: pass?, summary: summary}
+        strips = added_strips(current, next)
+
+        summaries =
+          Enum.map(strips, fn strip ->
+            {pass?, summary} =
+              SafetyMap.passable_strip?(context.safety_map, strip, context.policy)
+
+            %{strip: strip, pass: pass?, summary: summary}
+          end)
+
+        pass? = summaries != [] and Enum.all?(summaries, & &1.pass)
+        item = %{strips: summaries, pass: pass?}
 
         if pass? do
           {:cont, {next, [item | evidence]}}
@@ -48,19 +57,20 @@ defmodule CircleStory.Books.Composition.Quality.Regions do
     end)
   end
 
-  defp added_strip(current, next, :left) do
-    %{x: next.x, y: next.y, w: current.x - next.x, h: next.h}
-  end
+  # `Geometry.extend/4` clamps, so a step whose requested edge is already flush
+  # against the bound grows the opposite edge instead. Evaluate every region of
+  # `next` that `current` did not already cover so no art enters the canvas
+  # unchecked.
+  defp added_strips(current, next) do
+    current_right = current.x + current.w
+    current_bottom = current.y + current.h
 
-  defp added_strip(current, next, :right) do
-    %{x: current.x + current.w, y: next.y, w: next.x + next.w - current.x - current.w, h: next.h}
-  end
-
-  defp added_strip(current, next, :up) do
-    %{x: next.x, y: next.y, w: next.w, h: current.y - next.y}
-  end
-
-  defp added_strip(current, next, :down) do
-    %{x: next.x, y: current.y + current.h, w: next.w, h: next.y + next.h - current.y - current.h}
+    [
+      %{x: next.x, y: next.y, w: current.x - next.x, h: next.h},
+      %{x: current_right, y: next.y, w: next.x + next.w - current_right, h: next.h},
+      %{x: current.x, y: next.y, w: current.w, h: current.y - next.y},
+      %{x: current.x, y: current_bottom, w: current.w, h: next.y + next.h - current_bottom}
+    ]
+    |> Enum.filter(&(&1.w > 0 and &1.h > 0))
   end
 end

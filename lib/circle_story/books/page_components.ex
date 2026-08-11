@@ -63,7 +63,7 @@ defmodule CircleStory.Books.PageComponents do
         inset={@text_inset}
         backing={@text_backing}
       >
-        {@text}
+        <.role_content role={:inner} content={%{text: @text}} />
       </.fit_text>
       <.debug_box :if={@debug_rect} rect={@debug_rect} />
     </div>
@@ -217,10 +217,7 @@ defmodule CircleStory.Books.PageComponents do
           inset={@text_inset}
           backing={@text_backing}
         >
-          <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@title}</div>
-          <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
-            by {@author}
-          </div>
+          <.role_content role={:cover} content={%{title: @title, author: @author}} />
         </.fit_text>
         <.debug_box :if={@debug_rect} rect={@debug_rect} />
       </div>
@@ -295,14 +292,7 @@ defmodule CircleStory.Books.PageComponents do
         inset={candidate.inset}
         candidate_id={candidate.id}
       >
-        <%= if @role == :cover do %>
-          <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@content.title}</div>
-          <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
-            by {@content.author}
-          </div>
-        <% else %>
-          {@content.text}
-        <% end %>
+        <.role_content role={@role} content={@content} />
       </.fit_text>
     </div>
     """
@@ -328,16 +318,31 @@ defmodule CircleStory.Books.PageComponents do
         inset={@candidate.inset}
         candidate_id={@candidate.id}
       >
-        <%= if @role == :cover do %>
-          <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@content.title}</div>
-          <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
-            by {@content.author}
-          </div>
-        <% else %>
-          {@content.text}
-        <% end %>
+        <.role_content role={@role} content={@content} />
       </.fit_text>
     </div>
+    """
+  end
+
+  # The one definition of what a role actually renders inside its `.fit-text`
+  # box. The browser fit measurement, the scored glyph mask, and the final page
+  # must render identical markup or the contrast gates would validate a layout
+  # the print page never produces.
+  attr :role, :atom, required: true
+  attr :content, :map, required: true
+
+  defp role_content(%{role: :cover} = assigns) do
+    ~H"""
+    <div style="font-family:'Fredoka';font-weight:700;font-size:1em;">{@content.title}</div>
+    <div style="font-family:'Nunito';font-weight:700;font-size:0.5em;margin-top:0.18em;">
+      by {@content.author}
+    </div>
+    """
+  end
+
+  defp role_content(assigns) do
+    ~H"""
+    {@content.text}
     """
   end
 

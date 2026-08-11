@@ -5,16 +5,15 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
 
   @spec choose([Candidate.t()], map(), Policy.t()) :: {:ok, Candidate.t()} | {:error, term()}
   def choose(candidates, seed_rect, %Policy{} = policy) do
-    ranked = Enum.map(candidates, &rank(&1, seed_rect, policy))
-    passing = Enum.filter(ranked, &(&1.hard_rejections == []))
-
-    case passing do
+    case Enum.filter(candidates, &(&1.hard_rejections == [])) do
       [] ->
         {:error, :no_candidate_passed_hard_gates}
 
-      _ ->
+      passing ->
         {:ok,
-         Enum.max_by(passing, fn candidate ->
+         passing
+         |> Enum.map(&rank(&1, seed_rect, policy))
+         |> Enum.max_by(fn candidate ->
            {
              candidate.soft_total,
              candidate.measure.font_size,
