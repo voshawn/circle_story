@@ -36,13 +36,35 @@ defmodule CircleStory.Books.PageComponentsTest do
         valign: :top,
         color: "#1A1A1A",
         text_inset: 48,
+        text_min_font: 18,
         text_max_font: 56,
         text_backing: %{type: :backing, color: :white, opacity: 0.44}
       })
 
     assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
+    assert html =~ ~s(data-min-font="18")
     assert html =~ ~s(data-max-font="56")
     assert html =~ "background:rgba(250,250,250,0.44)"
+  end
+
+  test "cover/1 applies the selected font floor to the front panel only" do
+    html =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "T",
+        author: "A",
+        tagline: "A story of love.",
+        fill: "rgb(1,2,3)",
+        ink: "#1A1A1A",
+        text_min_font: 18
+      })
+
+    assert html =~ ~s(data-min-font="18")
+    # The back-panel tagline is not a searched candidate and keeps the page floor.
+    assert html =~ ~s(data-min-font="24")
   end
 
   test "inner_spread/1 honors the vertical anchor (valign)" do

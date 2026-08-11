@@ -791,6 +791,63 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
     |> stream(:pages, evaluation.pages, reset: true)
   end
 
+  attr :id, :string, required: true
+  attr :quality, :map, required: true
+
+  @doc """
+  Persisted deterministic composition evidence for one composed page.
+
+  Untreated ink attempts and backing attempts are reported separately: a page
+  that shipped with a backing is only auditable if the reviewer can see that
+  plain ink was scanned first and why every one of those scans was refused.
+  """
+  def composition_quality(assigns) do
+    assigns = assign(assigns, :attempts, Map.get(assigns.quality, :attempts) || %{})
+
+    ~H"""
+    <div
+      id={@id}
+      class={["mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"]}
+    >
+      <p class={["font-semibold"]}>
+        Deterministic composition · {@quality.treatment}
+      </p>
+      <p>
+        Final {format_quality_rect(@quality.final_rect)} · {@quality.align}/{@quality.valign} · {@quality.adjustment}
+      </p>
+      <p>
+        Font {format_quality_metric(@quality.font_size)}px · {@quality.line_count} lines · {@quality.candidate_count} candidates · {format_quality_metric(
+          @quality.duration_ms
+        )}ms
+      </p>
+      <p>
+        Glyphs {format_quality_rect(@quality.glyph_bounds)} · effect {format_quality_rect(
+          @quality.effect_bounds
+        )}
+      </p>
+      <p>
+        Worst tile p10 {format_quality_metric(@quality.metrics.worst_tile_p10)}:1 ·
+        below 3:1 {format_quality_percent(@quality.metrics.worst_tile_low_contrast_fraction)} ·
+        edge {format_quality_percent(@quality.metrics.edge_density)}
+      </p>
+      <p>
+        Untreated ink: {format_quality_attempts(Map.get(@attempts, :untreated))}
+      </p>
+      <p>
+        Backing attempts: {format_quality_attempts(Map.get(@attempts, :treated))}
+      </p>
+      <p :if={Map.get(@quality, :mask_render_errors, []) != []}>
+        Mask render failures: {format_mask_render_errors(@quality.mask_render_errors)}
+      </p>
+      <p class={["break-all text-[0.65rem] text-emerald-800/75"]}>
+        {@quality.contract_version} · {@quality.candidate_id} · {format_quality_count(
+          Map.get(@quality, :scored_count)
+        )} scans · {@quality.rejected_count} rejected variants
+      </p>
+    </div>
+    """
+  end
+
   defp format_error({:chromic_pdf_timeout, _message}) do
     "ChromicPDF timed out while composing this page. Prior art and pages were retained."
   end
@@ -806,8 +863,18 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
     "Story text cannot fit without clipping at the #{font}px minimum. Revise or split the page upstream."
   end
 
-  defp format_error({:composition_quality_failed, _details}) do
-    "No deterministic text treatment passed the hard readability gates. Existing output was retained."
+  # A browser that returned no usable measurement is a local rendering fault, so
+  # it must never be reported as page content the author has to rewrite.
+  defp format_error({:composition_measurement_failed, _details}) do
+    "The local browser returned no usable text measurement, so nothing was composed. " <>
+      "Check Chrome and retry; the page content was not the problem."
+  end
+
+  defp format_error({:composition_quality_failed, details}) do
+    "No deterministic text treatment passed the hard readability gates " <>
+      "(#{format_quality_attempts(Map.get(details, :untreated))} untreated, " <>
+      "#{format_quality_attempts(Map.get(details, :treated))} with backing). " <>
+      "Existing output was retained."
   end
 
   defp format_error({:exception, message}), do: message
@@ -849,6 +916,35 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
     do: :erlang.float_to_binary(value * 100, decimals: 1) <> "%"
 
   defp format_quality_percent(_), do: "—"
+
+  defp format_quality_count(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_quality_count(_), do: "—"
+
+  defp format_quality_attempts(%{scanned: 0}), do: "none scanned"
+
+  defp format_quality_attempts(%{scanned: scanned, passed: passed} = attempts) do
+    "#{passed}/#{scanned} passed" <>
+      format_rejection_reasons(Map.get(attempts, :rejection_reasons, %{}))
+  end
+
+  defp format_quality_attempts(_), do: "no recorded evidence"
+
+  defp format_rejection_reasons(reasons) when reasons == %{}, do: ""
+
+  defp format_rejection_reasons(reasons) when is_map(reasons) do
+    detail =
+      reasons
+      |> Enum.sort_by(fn {reason, count} -> {-count, to_string(reason)} end)
+      |> Enum.map_join(", ", fn {reason, count} -> "#{reason} ×#{count}" end)
+
+    " · rejected: #{detail}"
+  end
+
+  defp format_rejection_reasons(_), do: ""
+
+  defp format_mask_render_errors(errors) do
+    Enum.map_join(errors, ", ", fn error -> "#{error.candidate_id} (#{error.reason})" end)
+  end
 
   defp origin_label(session_items, key) do
     if current_session?(session_items, key),

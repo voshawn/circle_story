@@ -3,6 +3,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
 
   alias CircleStory.Books.Composition
   alias CircleStory.Books.Composition.ImageOps
+  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Policy, Result}
 
   setup do
     dir =
@@ -81,6 +82,45 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     refute encoded =~ "image_path"
   end
 
+  test "untreated and backing attempt evidence round-trips separately", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, Result.provenance(backed_result()))
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    quality = cached.composition_quality
+    assert quality.scored_count == 6
+
+    assert quality.attempts.untreated == %{
+             kind: :untreated,
+             scanned: 4,
+             passed: 0,
+             rejected: 4,
+             rejection_reasons: %{"local_contrast_percentile" => 4}
+           }
+
+    assert quality.attempts.treated == %{
+             kind: :treated,
+             scanned: 2,
+             passed: 1,
+             rejected: 1,
+             rejection_reasons: %{"local_contrast_fraction" => 1}
+           }
+
+    assert quality.mask_render_errors == [
+             %{candidate_id: "candidate-8", reason: ":mask_timeout"}
+           ]
+
+    encoded = raw |> ImageOps.bbox_path() |> File.read!()
+    refute encoded =~ "story_text"
+    refute encoded =~ "image_path"
+  end
+
   test "a superseded deterministic contract is invalidated on read", %{raw: raw} do
     box = %{
       bounding_box: [100, 120, 350, 460],
@@ -97,6 +137,63 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
 
     assert :ok = Composition.cache_placement(raw, box, stale_quality)
     assert {:ok, %{composition_quality: nil}} = Composition.cached_placement(raw)
+  end
+
+  defp backed_result do
+    rect = %{x: 140, y: 160, w: 700, h: 320}
+
+    %Result{
+      candidate: %{
+        scored_candidate("winner", 4, rect, [])
+        | treatment: %{type: :backing, color: :white, opacity: 0.44}
+      },
+      contract_version: Policy.contract_version(),
+      candidate_count: 40,
+      rejected_count: 5,
+      scored_count: 6,
+      untreated:
+        Attempts.summarize(
+          :untreated,
+          Enum.map(0..3, &scored_candidate("u#{&1}", &1, rect, [:local_contrast_percentile]))
+        ),
+      treated:
+        Attempts.summarize(:treated, [
+          scored_candidate("winner", 4, rect, []),
+          scored_candidate("t1", 5, rect, [:local_contrast_fraction])
+        ]),
+      mask_render_errors: [{"candidate-8", :mask_timeout}]
+    }
+  end
+
+  defp scored_candidate(id, index, rect, rejections) do
+    %Candidate{
+      id: id,
+      index: index,
+      rect: rect,
+      align: :center,
+      valign: :top,
+      min_font: 24,
+      max_font: 64,
+      inset: 48,
+      origin: :translate_right,
+      measure: %{
+        font_size: 61.25,
+        line_count: 1,
+        lines: [%{x: 48, y: 48, w: 600, h: 220}],
+        overflow: false,
+        clipped: false
+      },
+      ink: :black,
+      glyph_bounds: %{x: 48, y: 48, w: 600, h: 220},
+      hard_rejections: rejections,
+      metrics: %{
+        worst_tile_p10: 6.2,
+        worst_tile_low_contrast_fraction: 0.01,
+        worst_line_p05: 7.1,
+        edge_density: 0.03
+      },
+      soft_total: 10.5
+    }
   end
 
   test "an old cache with no provenance loads as unknown", %{raw: raw} do

@@ -4,6 +4,7 @@ defmodule CircleStory.Books.Composition.QualityTest do
   alias CircleStory.Books.Composition.Quality
 
   alias CircleStory.Books.Composition.Quality.{
+    Attempts,
     BrowserRenderer,
     Candidate,
     Policy,
@@ -101,6 +102,44 @@ defmodule CircleStory.Books.Composition.QualityTest do
     max_pairs = 2 * policy.finalist_limit
     assert result.scored_count > 0
     assert result.scored_count <= 2 * max_pairs
+
+    # The untreated rejection is exactly the evidence that justifies the backing,
+    # so it must survive the treated pass instead of being replaced by it.
+    assert result.untreated.scanned > 0
+    assert result.untreated.passed == 0
+    assert result.untreated.rejection_reasons != %{}
+    assert result.treated.scanned > 0
+    assert result.treated.passed > 0
+    assert result.scored_count == result.untreated.scanned + result.treated.scanned
+    assert result.rejected_count == result.untreated.rejected + result.treated.rejected
+
+    provenance = Result.provenance(result)
+    assert provenance.scored_count == result.scored_count
+    assert provenance.attempts.untreated.scanned == result.untreated.scanned
+    assert provenance.attempts.untreated.passed == 0
+    assert provenance.attempts.untreated.rejection_reasons != %{}
+    assert provenance.attempts.treated.passed == result.treated.passed
+    assert {:ok, _encoded} = Jason.encode(provenance)
+  end
+
+  test "a total failure keeps the untreated rejection reasons that explain it" do
+    art = checkerboard(800, 400, 24)
+
+    policy =
+      test_policy(candidate_transforms: [:seed], finalist_limit: 2, backing_opacities: [])
+
+    seed = %{x: 480, y: 40, w: 280, h: 260}
+
+    assert {:error, {:composition_quality_failed, details}} =
+             Quality.optimize(art, %{text: @story}, placement(:center, :middle), seed,
+               policy: policy
+             )
+
+    assert details.untreated.scanned > 0
+    assert details.untreated.passed == 0
+    assert details.untreated.rejection_reasons != %{}
+    assert details.treated == %Attempts{kind: :treated}
+    assert details.variants_scored == details.untreated.scanned
   end
 
   test "an untreated pass never scans any backing opacity" do
@@ -115,6 +154,9 @@ defmodule CircleStory.Books.Composition.QualityTest do
 
     assert result.candidate.treatment == nil
     assert result.scored_count <= 2 * policy.finalist_limit
+    assert result.untreated.passed > 0
+    assert result.treated == %Attempts{kind: :treated}
+    assert result.scored_count == result.untreated.scanned
   end
 
   test "long unbreakable text returns structured overflow at the role minimum" do

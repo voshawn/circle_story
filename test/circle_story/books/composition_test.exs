@@ -85,6 +85,51 @@ defmodule CircleStory.Books.CompositionTest do
     assert cached.composition_quality == nil
   end
 
+  test "the printed page uses the selected candidate's font floor, not the component default" do
+    raw = write_raw("inner_min_font", 1600, 900, :white)
+    cache_bbox(raw, [100, 600, 400, 950], "left")
+
+    spread = %InnerSpread{
+      position: 4,
+      text: "A lower configured floor.",
+      image_prompt: "x",
+      generated_image_path: raw
+    }
+
+    assert {:ok, html, _out} =
+             Composition.spread_html(spread, quality_optimizer: min_font_optimizer(18))
+
+    # The fit script gates on data-min-font, so a page that ships the component
+    # default while the gates scored 18px would overflow its box unreported.
+    assert html =~ ~s(data-min-font="18")
+    refute html =~ ~s(data-min-font="24")
+  end
+
+  test "the printed cover uses the selected candidate's font floor on the front panel" do
+    raw = write_raw("cover_min_font", 1875, 1875, :sky_blue)
+    cache_bbox(raw, [80, 150, 320, 850], "center")
+
+    book = %Book{
+      title: "T",
+      author: "A",
+      cover: %CoverSpread{tagline: "t", image_prompt: "x", generated_image_path: raw}
+    }
+
+    assert {:ok, html, _out} =
+             Composition.cover_html(book, quality_optimizer: min_font_optimizer(18))
+
+    assert html =~ ~s(data-min-font="18")
+  end
+
+  defp min_font_optimizer(min_font) do
+    fn image, content, placement, seed_rect, opts ->
+      {:ok, result} =
+        CompositionQualityOptimizerFake.optimize(image, content, placement, seed_rect, opts)
+
+      {:ok, %{result | candidate: %{result.candidate | min_font: min_font}}}
+    end
+  end
+
   test "spread_html/2 exposes structured deterministic overflow instead of clipping" do
     raw = write_raw("inner_3", 1600, 900, :white)
     cache_bbox(raw, [100, 600, 400, 950], "left")

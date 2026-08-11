@@ -599,40 +599,11 @@
                   <p :if={Map.has_key?(page.placement, :bounding_box)}>
                     Model seed: {inspect(page.placement.bounding_box)} · {page.placement.text_align}/{page.placement.vertical_align}
                   </p>
-                  <div
-                    :if={quality = Map.get(page.placement, :composition_quality)}
+                  <.composition_quality
+                    :if={Map.get(page.placement, :composition_quality)}
                     id={"composition-quality-#{page.id}"}
-                    class={[
-                      "mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"
-                    ]}
-                  >
-                    <p class={["font-semibold"]}>
-                      Deterministic composition · {quality.treatment}
-                    </p>
-                    <p>
-                      Final {format_quality_rect(quality.final_rect)} · {quality.align}/{quality.valign} · {quality.adjustment}
-                    </p>
-                    <p>
-                      Font {format_quality_metric(quality.font_size)}px · {quality.line_count} lines · {quality.candidate_count} candidates · {format_quality_metric(
-                        quality.duration_ms
-                      )}ms
-                    </p>
-                    <p>
-                      Glyphs {format_quality_rect(quality.glyph_bounds)} · effect {format_quality_rect(
-                        quality.effect_bounds
-                      )}
-                    </p>
-                    <p>
-                      Worst tile p10 {format_quality_metric(quality.metrics.worst_tile_p10)}:1 ·
-                      below 3:1 {format_quality_percent(
-                        quality.metrics.worst_tile_low_contrast_fraction
-                      )} ·
-                      edge {format_quality_percent(quality.metrics.edge_density)}
-                    </p>
-                    <p class={["break-all text-[0.65rem] text-emerald-800/75"]}>
-                      {quality.contract_version} · {quality.candidate_id} · {quality.rejected_count} rejected finalists
-                    </p>
-                  </div>
+                    quality={Map.get(page.placement, :composition_quality)}
+                  />
                 </div>
               <% else %>
                 <div class={[

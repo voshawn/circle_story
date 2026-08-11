@@ -26,16 +26,53 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     def mask(_candidate, _content, _role), do: {:error, :not_used}
   end
 
+  defmodule OverflowingMeasurementRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    # One candidate the browser could not measure at all; every other candidate
+    # measured cleanly and genuinely overflows its box.
+    @impl true
+    def measure([unusable | rest], _content, _role) do
+      overflowing =
+        Map.new(
+          rest,
+          &{&1.id,
+           %{
+             font_size: 24.0,
+             line_count: 3,
+             lines: [%{x: 0, y: 0, w: 10, h: 10}],
+             overflow: true,
+             clipped: false
+           }}
+        )
+
+      {:ok,
+       Map.put(overflowing, unusable.id, %{
+         font_size: nil,
+         line_count: 1,
+         lines: [],
+         overflow: false,
+         clipped: false
+       })}
+    end
+
+    @impl true
+    def mask(_candidate, _content, _role), do: {:error, :not_used}
+  end
+
   alias CircleStory.Books.Composition.Layout
   alias CircleStory.Books.Composition.Quality
 
   alias CircleStory.Books.Composition.Quality.{
+    Attempts,
     Candidate,
     Candidates,
     Context,
     Geometry,
     Policy,
     Regions,
+    Result,
     SafetyMap,
     Scorer,
     Selection
@@ -363,25 +400,83 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
   end
 
   test "an incomplete browser measurement is a rejection, not a raise" do
-    policy = test_policy(candidate_transforms: [:seed])
-    seed = %{x: 520, y: 40, w: 220, h: 220}
-
-    context = %Context{
-      image: Image.new!(800, 400, color: :white),
-      content: %{text: "hello"},
-      placement: placement(),
-      seed_rect: seed,
-      policy: policy,
-      renderer: PartialMeasurementRenderer,
-      bounds: Policy.bounds_for_seed(policy, seed),
-      safe_canvas: Policy.bounds_for_seed(policy, seed)
-    }
-
-    assert {:ok, generated} = Candidates.generate(context)
+    assert {:ok, generated} = Candidates.generate(measurement_context(PartialMeasurementRenderer))
     assert length(generated.candidates) > 1
 
-    assert {:error, {:composition_overflow, %{reason: :no_candidate_fits_without_clipping}}} =
-             Candidates.measure(generated)
+    assert {:error, {:composition_measurement_failed, details}} = Candidates.measure(generated)
+
+    assert details.reason == :no_usable_measurement
+    assert details.candidates_tried == length(generated.candidates)
+
+    assert details.rejection_reasons == %{
+             unusable_measurement: length(generated.candidates)
+           }
+  end
+
+  test "content that genuinely cannot fit is still reported as overflow, with reasons" do
+    assert {:ok, generated} =
+             Candidates.generate(measurement_context(OverflowingMeasurementRenderer))
+
+    assert {:error, {:composition_overflow, details}} = Candidates.measure(generated)
+
+    assert details.reason == :no_candidate_fits_without_clipping
+    assert details.minimum_font == 18
+    assert details.rejection_reasons[:unusable_measurement] == 1
+    assert details.rejection_reasons[:text_overflow] == length(generated.candidates) - 1
+  end
+
+  test "provenance keeps untreated and treated attempt evidence separable and JSON-safe" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+    winner = evaluated_candidate("winner", 3, rect, 24, [])
+
+    result = %Result{
+      candidate: %{winner | treatment: %{type: :backing, color: :white, opacity: 0.44}},
+      contract_version: Policy.contract_version(),
+      candidate_count: 12,
+      rejected_count: 5,
+      scored_count: 6,
+      untreated:
+        Attempts.summarize(:untreated, [
+          evaluated_candidate("u0", 0, rect, 24, [:local_contrast_percentile]),
+          evaluated_candidate("u1", 1, rect, 24, [:local_contrast_percentile]),
+          evaluated_candidate("u2", 2, rect, 24, [:local_contrast_fraction])
+        ]),
+      treated:
+        Attempts.summarize(:treated, [
+          winner,
+          evaluated_candidate("t1", 4, rect, 24, [:glyph_effect_inset]),
+          evaluated_candidate("t2", 5, rect, 24, [:glyph_effect_inset])
+        ]),
+      mask_render_errors: [{"candidate-9", :mask_timeout}]
+    }
+
+    provenance = Result.provenance(result)
+
+    assert provenance.scored_count == 6
+
+    assert provenance.attempts.untreated == %{
+             scanned: 3,
+             passed: 0,
+             rejected: 3,
+             rejection_reasons: %{
+               "local_contrast_percentile" => 2,
+               "local_contrast_fraction" => 1
+             }
+           }
+
+    assert provenance.attempts.treated == %{
+             scanned: 3,
+             passed: 1,
+             rejected: 2,
+             rejection_reasons: %{"glyph_effect_inset" => 2}
+           }
+
+    assert provenance.mask_render_errors == [
+             %{candidate_id: "candidate-9", reason: ":mask_timeout"}
+           ]
+
+    assert {:ok, encoded} = Jason.encode(provenance)
+    assert %{"attempts" => %{"untreated" => %{"scanned" => 3}}} = Jason.decode!(encoded)
   end
 
   test "cover geometry is derived from the front panel rather than restated" do
@@ -392,6 +487,22 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
     bounds = Policy.bounds_for_seed(policy, %{x: 0, y: 0, w: front.w, h: front.h})
     assert Geometry.contains?(front, bounds)
+  end
+
+  defp measurement_context(renderer) do
+    policy = test_policy(candidate_transforms: [:seed])
+    seed = %{x: 520, y: 40, w: 220, h: 220}
+
+    %Context{
+      image: Image.new!(800, 400, color: :white),
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: renderer,
+      bounds: Policy.bounds_for_seed(policy, seed),
+      safe_canvas: Policy.bounds_for_seed(policy, seed)
+    }
   end
 
   defp test_policy(overrides \\ []) do

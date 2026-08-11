@@ -41,12 +41,13 @@ defmodule CircleStory.Books.PageComponents do
   attr :color, :string, required: true
   attr :debug_rect, :map, default: nil, doc: "raw AI box to overlay (debug only)"
   attr :text_inset, :integer, default: 0
+  attr :text_min_font, :integer, default: @min_font
   attr :text_max_font, :integer, default: @max_font_body
   attr :text_backing, :map, default: nil
 
   def inner_spread(assigns) do
     {w, h} = Layout.inner_dims()
-    assigns = assign(assigns, w: w, h: h, min_font: @min_font)
+    assigns = assign(assigns, w: w, h: h)
 
     ~H"""
     <div style={"position:relative;overflow:hidden;width:#{@w}px;height:#{@h}px;"}>
@@ -58,7 +59,7 @@ defmodule CircleStory.Books.PageComponents do
         color={@color}
         font="Nunito"
         weight="700"
-        min_font={@min_font}
+        min_font={@text_min_font}
         max_font={@text_max_font}
         inset={@text_inset}
         backing={@text_backing}
@@ -130,6 +131,7 @@ defmodule CircleStory.Books.PageComponents do
   attr :debug_rect, :map, default: nil, doc: "raw AI box (panel-local) to overlay (debug only)"
   attr :character_uri, :string, default: nil
   attr :text_inset, :integer, default: 0
+  attr :text_min_font, :integer, default: @min_font
   attr :text_max_font, :integer, default: @max_font_title
   attr :text_backing, :map, default: nil
 
@@ -152,7 +154,6 @@ defmodule CircleStory.Books.PageComponents do
         circle_r: circle_r,
         blurb_lines: @blurb_lines,
         min_font: @min_font,
-        max_font_title: @max_font_title,
         max_font_tagline: @max_font_tagline,
         spine_title_font: @spine_title_font,
         spine_author_font: @spine_author_font
@@ -212,7 +213,7 @@ defmodule CircleStory.Books.PageComponents do
           color={@front_color}
           font="Fredoka"
           weight="700"
-          min_font={@min_font}
+          min_font={@text_min_font}
           max_font={@text_max_font}
           inset={@text_inset}
           backing={@text_backing}

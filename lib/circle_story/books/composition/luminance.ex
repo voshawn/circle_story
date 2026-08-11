@@ -36,12 +36,6 @@ defmodule CircleStory.Books.Composition.Luminance do
   def hex(:black), do: @black
   def hex(:white), do: @white
 
-  @doc "Sample the mean color of `rect` within `image` and pick an ink color."
-  @spec pick_for_region(Vix.Vips.Image.t(), map()) :: :black | :white
-  def pick_for_region(image, %{x: x, y: y, w: w, h: h}) do
-    image |> Image.crop!(x, y, w, h) |> Image.average!() |> color_for()
-  end
-
   defp linear_channel(channel) do
     normalized = channel / 255
 

@@ -13,6 +13,8 @@ defmodule CircleStory.Books.Composition.Quality.Context do
                 candidates: [],
                 measured: [],
                 finalists: [],
+                untreated: [],
+                treated: [],
                 evaluated: [],
                 evidence: %{}
               ]
@@ -30,6 +32,8 @@ defmodule CircleStory.Books.Composition.Quality.Context do
           candidates: list(),
           measured: list(),
           finalists: list(),
+          untreated: list(),
+          treated: list(),
           evaluated: list(),
           selected: struct() | nil,
           evidence: map()

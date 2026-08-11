@@ -9,6 +9,7 @@ defmodule CircleStory.Books.Composition.Quality do
   """
 
   alias CircleStory.Books.Composition.Quality.{
+    Attempts,
     BrowserRenderer,
     Candidates,
     Context,
@@ -104,35 +105,43 @@ defmodule CircleStory.Books.Composition.Quality do
           end)
         end)
 
-      {evaluated, backing_scans} =
+      treated =
         if Enum.any?(untreated, &(&1.hard_rejections == [])) do
-          {untreated, 0}
+          []
         else
           backing_variants(rendered, context)
         end
 
-      evidence =
-        context.evidence
-        |> Map.put(:mask_render_errors, Enum.reverse(errors))
-        |> Map.put(:scored_count, length(untreated) + backing_scans)
+      evidence = Map.put(context.evidence, :mask_render_errors, Enum.reverse(errors))
 
-      {:ok, %{context | evaluated: evaluated, evidence: evidence}}
+      {:ok,
+       %{
+         context
+         | untreated: untreated,
+           treated: treated,
+           evaluated: untreated ++ treated,
+           evidence: evidence
+       }}
     end
   end
 
   @doc false
   @spec select_candidate(Context.t()) :: {:ok, Result.t()} | {:error, term()}
   def select_candidate(%Context{} = context) do
-    with {:ok, selected} <- Selection.choose(context.evaluated, context.seed_rect, context.policy) do
-      rejected_count = Enum.count(context.evaluated, &(&1.hard_rejections != []))
+    untreated = Attempts.summarize(:untreated, context.untreated)
+    treated = Attempts.summarize(:treated, context.treated)
 
+    with {:ok, selected} <- Selection.choose(context.evaluated, context.seed_rect, context.policy) do
       {:ok,
        %Result{
          candidate: selected,
          contract_version: context.policy.contract_version,
          candidate_count: length(context.candidates),
-         rejected_count: rejected_count,
-         scored_count: Map.get(context.evidence, :scored_count, length(context.evaluated))
+         rejected_count: untreated.rejected + treated.rejected,
+         scored_count: untreated.scanned + treated.scanned,
+         untreated: untreated,
+         treated: treated,
+         mask_render_errors: Map.get(context.evidence, :mask_render_errors, [])
        }}
     else
       {:error, :no_candidate_passed_hard_gates} ->
@@ -141,11 +150,10 @@ defmodule CircleStory.Books.Composition.Quality do
           %{
             role: context.policy.role,
             candidates_tried: length(context.candidates),
-            finalists_scored: length(context.evaluated),
-            rejection_reasons:
-              context.evaluated
-              |> Enum.flat_map(& &1.hard_rejections)
-              |> Enum.frequencies()
+            variants_scored: untreated.scanned + treated.scanned,
+            untreated: untreated,
+            treated: treated,
+            mask_render_errors: Map.get(context.evidence, :mask_render_errors, [])
           }}}
     end
   end
@@ -164,26 +172,27 @@ defmodule CircleStory.Books.Composition.Quality do
   # first opacity where some finalist/ink pair clears the hard gates, so the
   # stronger backings are never scanned once a lighter one works. Every finalist
   # and both inks are retained at that opacity so ranking still has the full
-  # field, and the total scan count is reported for bounded-work assertions.
+  # field, and every scanned attempt — including the weaker opacities that were
+  # rejected on the way — is kept so the evidence accounts for the total work.
   defp backing_variants(rendered, context) do
     pairs =
       for {candidate, mask} <- rendered,
           {ink, color} <- [black: :white, white: :black],
           do: {candidate, mask, ink, color}
 
-    Enum.reduce_while(context.policy.backing_opacities, {[], 0}, fn opacity, {_previous, scans} ->
-      {variants, scans} =
-        Enum.map_reduce(pairs, scans, fn {candidate, mask, ink, color}, scanned ->
+    Enum.reduce_while(context.policy.backing_opacities, [], fn opacity, attempted ->
+      variants =
+        Enum.map(pairs, fn {candidate, mask, ink, color} ->
           treatment = %{type: :backing, color: color, opacity: opacity}
-
-          {Scorer.score(context.image, candidate, mask, context.policy, ink, treatment),
-           scanned + 1}
+          Scorer.score(context.image, candidate, mask, context.policy, ink, treatment)
         end)
 
+      attempted = attempted ++ variants
+
       if Enum.any?(variants, &(&1.hard_rejections == [])) do
-        {:halt, {variants, scans}}
+        {:halt, attempted}
       else
-        {:cont, {variants, scans}}
+        {:cont, attempted}
       end
     end)
   end

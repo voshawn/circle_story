@@ -10,7 +10,7 @@ defmodule CircleStory.Books.Composition do
   require Logger
 
   alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance, Quality}
-  alias CircleStory.Books.Composition.Quality.{Policy, Result}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result}
   alias CircleStory.Books.Actions.PlaceText
 
   @quality_contract Policy.contract_version()
@@ -90,6 +90,7 @@ defmodule CircleStory.Books.Composition do
                 valign: candidate.valign,
                 color: Luminance.hex(candidate.ink),
                 text_inset: candidate.inset,
+                text_min_font: candidate.min_font,
                 text_max_font: candidate.max_font,
                 text_backing: candidate.treatment,
                 debug_rect: debug_rect(box.bounding_box, region)
@@ -152,6 +153,7 @@ defmodule CircleStory.Books.Composition do
                 ink: ink,
                 character_uri: back_cover_character_uri(book),
                 text_inset: candidate.inset,
+                text_min_font: candidate.min_font,
                 text_max_font: candidate.max_font,
                 text_backing: candidate.treatment,
                 debug_rect: debug_rect(box.bounding_box, region)
@@ -291,11 +293,35 @@ defmodule CircleStory.Books.Composition do
       metrics: decode_quality_metrics(quality["metrics"] || %{}),
       candidate_count: quality["candidate_count"],
       rejected_count: quality["rejected_count"],
+      scored_count: quality["scored_count"],
+      attempts: decode_quality_attempts(quality["attempts"]),
+      mask_render_errors: decode_mask_render_errors(quality["mask_render_errors"]),
       duration_ms: quality["duration_ms"]
     }
   end
 
   defp decode_quality(_), do: nil
+
+  # Untreated and treated attempts stay separate through the sidecar so a backing
+  # decision can still be audited from a page composed in an earlier session.
+  defp decode_quality_attempts(%{} = attempts) do
+    %{
+      untreated: Attempts.decode(:untreated, attempts["untreated"]),
+      treated: Attempts.decode(:treated, attempts["treated"])
+    }
+  end
+
+  defp decode_quality_attempts(_attempts) do
+    %{untreated: Attempts.decode(:untreated, nil), treated: Attempts.decode(:treated, nil)}
+  end
+
+  defp decode_mask_render_errors(errors) when is_list(errors) do
+    Enum.map(errors, fn error ->
+      %{candidate_id: error["candidate_id"], reason: error["reason"]}
+    end)
+  end
+
+  defp decode_mask_render_errors(_errors), do: []
 
   defp decode_quality_metrics(metrics) do
     %{

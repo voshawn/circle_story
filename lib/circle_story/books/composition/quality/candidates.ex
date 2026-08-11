@@ -47,22 +47,46 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
 
         fitting = Enum.filter(measured, &(&1.hard_rejections == []))
 
-        if fitting == [] do
-          {:error,
-           {:composition_overflow,
-            %{
-              role: context.policy.role,
-              minimum_font: context.policy.min_font,
-              candidates_tried: length(measured),
-              reason: :no_candidate_fits_without_clipping
-            }}}
-        else
-          {:ok, %{context | measured: measured}}
+        cond do
+          fitting != [] -> {:ok, %{context | measured: measured}}
+          unusable?(measured) -> {:error, unusable_measurement_error(measured, context)}
+          true -> {:error, overflow_error(measured, context)}
         end
 
       {:error, reason} ->
         {:error, {:composition_measurement_failed, reason}}
     end
+  end
+
+  # A page whose text genuinely cannot fit and a browser that returned nothing
+  # usable are different faults with different operator responses, so they are
+  # never reported under the same reason. Rejection frequencies travel with both.
+  defp unusable?(measured),
+    do: Enum.all?(measured, &(&1.hard_rejections == [:unusable_measurement]))
+
+  defp unusable_measurement_error(measured, context) do
+    {:composition_measurement_failed,
+     %{
+       role: context.policy.role,
+       candidates_tried: length(measured),
+       reason: :no_usable_measurement,
+       rejection_reasons: rejection_reasons(measured)
+     }}
+  end
+
+  defp overflow_error(measured, context) do
+    {:composition_overflow,
+     %{
+       role: context.policy.role,
+       minimum_font: context.policy.min_font,
+       candidates_tried: length(measured),
+       reason: :no_candidate_fits_without_clipping,
+       rejection_reasons: rejection_reasons(measured)
+     }}
+  end
+
+  defp rejection_reasons(measured) do
+    measured |> Enum.flat_map(& &1.hard_rejections) |> Enum.frequencies()
   end
 
   @spec select_finalists(Context.t()) :: {:ok, Context.t()}

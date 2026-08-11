@@ -1,10 +1,17 @@
 defmodule CircleStory.Books.Composition.Quality.Result do
   @moduledoc "Selected deterministic composition and privacy-safe evaluation provenance."
 
-  alias CircleStory.Books.Composition.Quality.Candidate
+  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate}
 
   @enforce_keys [:candidate, :contract_version, :candidate_count, :rejected_count]
-  defstruct @enforce_keys ++ [duration_ms: nil, scored_count: 0]
+  defstruct @enforce_keys ++
+              [
+                duration_ms: nil,
+                scored_count: 0,
+                untreated: %Attempts{kind: :untreated},
+                treated: %Attempts{kind: :treated},
+                mask_render_errors: []
+              ]
 
   @type t :: %__MODULE__{
           candidate: Candidate.t(),
@@ -12,7 +19,10 @@ defmodule CircleStory.Books.Composition.Quality.Result do
           candidate_count: non_neg_integer(),
           rejected_count: non_neg_integer(),
           duration_ms: float() | nil,
-          scored_count: non_neg_integer()
+          scored_count: non_neg_integer(),
+          untreated: Attempts.t(),
+          treated: Attempts.t(),
+          mask_render_errors: [{String.t(), term()}]
         }
 
   @doc "Compact provenance suitable for the placement sidecar and development UI."
@@ -42,8 +52,21 @@ defmodule CircleStory.Books.Composition.Quality.Result do
       },
       candidate_count: result.candidate_count,
       rejected_count: result.rejected_count,
+      scored_count: result.scored_count,
+      attempts: %{
+        untreated: Attempts.provenance(result.untreated),
+        treated: Attempts.provenance(result.treated)
+      },
+      mask_render_errors: mask_render_errors(result.mask_render_errors),
       duration_ms: round_metric(result.duration_ms)
     }
+  end
+
+  # Mask failures name a candidate and a renderer fault, never page content.
+  defp mask_render_errors(errors) do
+    Enum.map(errors, fn {candidate_id, reason} ->
+      %{candidate_id: candidate_id, reason: inspect(reason)}
+    end)
   end
 
   defp global_lines(candidate) do

@@ -23,13 +23,4 @@ defmodule CircleStory.Books.Composition.LuminanceTest do
     assert Luminance.hex(:black) == "#1A1A1A"
     assert Luminance.hex(:white) == "#FAFAFA"
   end
-
-  test "pick_for_region/2 samples a cropped region" do
-    base = Image.new!(200, 100, color: :white)
-    black = Image.new!(100, 100, color: :black)
-    {:ok, img} = Image.compose(base, black, x: 100, y: 0)
-
-    assert Luminance.pick_for_region(img, %{x: 0, y: 0, w: 100, h: 100}) == :black
-    assert Luminance.pick_for_region(img, %{x: 100, y: 0, w: 100, h: 100}) == :white
-  end
 end

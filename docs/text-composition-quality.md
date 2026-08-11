@@ -80,6 +80,23 @@ the bbox sidecar. Successful composition adds a compact
 font/line fit, treatment, candidate/rejection counts, and selected named metrics.
 It contains no text, prompt, image bytes, source path, or photo data.
 
+Untreated ink attempts and backing attempts are recorded separately, never
+merged: `attempts.untreated` and `attempts.treated` each carry their own
+`scanned`, `passed`, `rejected`, and `rejection_reasons` frequencies, and
+`scored_count` is the total scan count across both. A page that shipped with a
+backing therefore still records that plain ink was scanned first and exactly
+which gate refused every one of those scans. The same split appears in
+`{:composition_quality_failed, details}` and in the development evaluation UI.
+Renderer faults that prevented a finalist mask are listed as
+`mask_render_errors` (candidate id and inspected reason only).
+
+A browser that returns no usable measurement at all is reported as
+`{:composition_measurement_failed, details}` with `reason:
+:no_usable_measurement`, distinct from genuine
+`{:composition_overflow, details}` content that cannot fit — an operator is
+never asked to rewrite a page because Chrome misbehaved. Both details carry
+`rejection_reasons` frequencies.
+
 Deterministic selection is recomputed on every composition, including free
 cached-bbox recomposition; it is never reused as a stale output cache. Persisted
 provenance is accepted for display only when its contract version matches the
@@ -108,6 +125,8 @@ and abandons the remaining opacities at the first opacity where some finalist
 and ink clears the hard gates — so a page that the lightest backing fixes never
 pays for the stronger ones. Worst case is
 `2 x finalists x (1 + length(backing_opacities))` scans, and the actual number is
-reported as `scored_count` on the optimizer result. Busy artwork that needs the
+reported as `scored_count` on the optimizer result — the sum of the untreated
+and treated attempt counts, including the weaker opacities rejected on the way.
+Busy artwork that needs the
 strongest backing is therefore the case to calibrate against, not the no-backing
 measurement above.
