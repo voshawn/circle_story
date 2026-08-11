@@ -1,7 +1,7 @@
 defmodule CircleStory.Books.Composition.Quality.Result do
   @moduledoc "Selected deterministic composition and privacy-safe evaluation provenance."
 
-  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Diagnostics}
 
   @enforce_keys [:candidate, :contract_version, :candidate_count, :rejected_count]
   defstruct @enforce_keys ++
@@ -62,10 +62,11 @@ defmodule CircleStory.Books.Composition.Quality.Result do
     }
   end
 
-  # Mask failures name a candidate and a renderer fault, never page content.
+  # Mask failures name a candidate and a bounded fault class. The raw renderer
+  # term is never persisted: it can embed the page document it failed over.
   defp mask_render_errors(errors) do
     Enum.map(errors, fn {candidate_id, reason} ->
-      %{candidate_id: candidate_id, reason: inspect(reason)}
+      %{candidate_id: candidate_id, reason: Diagnostics.reason_class(reason)}
     end)
   end
 

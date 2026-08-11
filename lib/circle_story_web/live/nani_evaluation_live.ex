@@ -14,6 +14,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   alias CircleStory.Books.CharacterSelector.Gemini, as: SelectorGemini
   alias CircleStory.Books.Composition.ImageOps
+  alias CircleStory.Books.Composition.Quality.Diagnostics
   alias CircleStory.Books.Templates.NanisMagicThread
 
   @source_extensions ~w(.png .jpg .jpeg .webp)
@@ -848,38 +849,61 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
     """
   end
 
-  defp format_error({:chromic_pdf_timeout, _message}) do
+  @doc false
+  @spec format_error(term()) :: String.t()
+  def format_error({:chromic_pdf_timeout, _message}) do
     "ChromicPDF timed out while composing this page. Prior art and pages were retained."
   end
 
-  defp format_error({:chromic_pdf_failure, message}), do: "ChromicPDF failed: #{message}"
-  defp format_error(:no_raw_art), do: "No raw art exists for this item yet."
-  defp format_error(:no_cached_bounding_box), do: "No cached text placement exists yet."
-  defp format_error(:unknown_page), do: "Unknown Nani page."
-  defp format_error(:unknown_character), do: "Unknown Nani character."
-  defp format_error(:invalid_action), do: "That action is not available."
+  def format_error({:chromic_pdf_failure, message}), do: "ChromicPDF failed: #{message}"
+  def format_error(:no_raw_art), do: "No raw art exists for this item yet."
+  def format_error(:no_cached_bounding_box), do: "No cached text placement exists yet."
+  def format_error(:unknown_page), do: "Unknown Nani page."
+  def format_error(:unknown_character), do: "Unknown Nani character."
+  def format_error(:invalid_action), do: "That action is not available."
 
-  defp format_error({:composition_overflow, %{minimum_font: font}}) do
+  def format_error({:composition_overflow, %{minimum_font: font}}) do
     "Story text cannot fit without clipping at the #{font}px minimum. Revise or split the page upstream."
   end
 
   # A browser that returned no usable measurement is a local rendering fault, so
   # it must never be reported as page content the author has to rewrite.
-  defp format_error({:composition_measurement_failed, _details}) do
+  def format_error({:composition_measurement_failed, _details}) do
     "The local browser returned no usable text measurement, so nothing was composed. " <>
       "Check Chrome and retry; the page content was not the problem."
   end
 
-  defp format_error({:composition_quality_failed, details}) do
+  # Every finalist mask failing is the same class of local fault, reported with
+  # bounded fault classes rather than the raw renderer terms behind them.
+  def format_error({:composition_mask_render_failed, errors}) do
+    "The local browser rendered no usable glyph mask for any finalist, so nothing was " <>
+      "composed#{format_mask_render_classes(errors)}. " <>
+      "Check Chrome and retry; the page content was not the problem."
+  end
+
+  def format_error({:composition_quality_failed, details}) do
     "No deterministic text treatment passed the hard readability gates " <>
       "(#{format_quality_attempts(Map.get(details, :untreated))} untreated, " <>
       "#{format_quality_attempts(Map.get(details, :treated))} with backing). " <>
       "Existing output was retained."
   end
 
-  defp format_error({:exception, message}), do: message
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
+  def format_error({:exception, message}), do: message
+  def format_error(reason) when is_binary(reason), do: reason
+  def format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
+
+  defp format_mask_render_classes([_ | _] = errors) do
+    detail =
+      errors
+      |> Enum.map(fn {_candidate_id, reason} -> Diagnostics.reason_class(reason) end)
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {class, count} -> {-count, class} end)
+      |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+
+    " (#{detail})"
+  end
+
+  defp format_mask_render_classes(_errors), do: ""
 
   defp error_for(errors, key), do: Map.get(errors, key)
   defp active_for?(nil, _key), do: false

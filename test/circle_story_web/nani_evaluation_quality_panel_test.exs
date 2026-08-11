@@ -79,10 +79,38 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
       render_component(&NaniEvaluationLive.composition_quality/1, %{
         id: "composition-quality-inner-3",
         quality:
-          quality(mask_render_errors: [%{candidate_id: "candidate-3", reason: ":mask_timeout"}])
+          quality(
+            mask_render_errors: [
+              %{candidate_id: "candidate-3", reason: "renderer_exit:timeout:GenServer:call"}
+            ]
+          )
       })
 
-    assert html =~ "Mask render failures: candidate-3 (:mask_timeout)"
+    assert html =~ "Mask render failures: candidate-3 (renderer_exit:timeout:GenServer:call)"
+  end
+
+  test "an all-finalists mask failure reads as a local browser fault, not page content" do
+    page_text = "Nani wove her fierce love into every single thread"
+    document = "<html><body>#{page_text}</body></html>"
+
+    errors = [
+      {"candidate-1",
+       {:renderer_exit,
+        {:timeout, {GenServer, :call, [self(), {:capture_screenshot, {:html, document}}, 5_000]}}}},
+      {"candidate-2",
+       {:renderer_exit,
+        {:timeout, {GenServer, :call, [self(), {:capture_screenshot, {:html, document}}, 5_000]}}}},
+      {"candidate-3", {:renderer_exception, ArgumentError, "raised over #{document}"}}
+    ]
+
+    message = NaniEvaluationLive.format_error({:composition_mask_render_failed, errors})
+
+    assert message =~ "The local browser rendered no usable glyph mask for any finalist"
+    assert message =~ "the page content was not the problem"
+    assert message =~ "renderer_exit:timeout:GenServer:call ×2"
+    assert message =~ "renderer_exception:ArgumentError ×1"
+    refute message =~ page_text
+    refute message =~ "<html"
   end
 
   test "a legacy entry with no attempt evidence renders without crashing" do

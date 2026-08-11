@@ -61,6 +61,41 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     def mask(_candidate, _content, _role), do: {:error, :not_used}
   end
 
+  defmodule MaskFailureRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    @page_document "<html><body>Nani wove her fierce love into every thread</body></html>"
+
+    def page_document, do: @page_document
+
+    @impl true
+    def measure(candidates, _content, _role) do
+      {:ok,
+       Map.new(
+         candidates,
+         &{&1.id,
+          %{
+            font_size: 24.0,
+            line_count: 1,
+            lines: [%{x: 10, y: 10, w: &1.rect.w - 20, h: 30}],
+            overflow: false,
+            clipped: false
+          }}
+       )}
+    end
+
+    # The shape a ChromicPDF call timeout actually exits with: the page document
+    # rides along inside the `GenServer.call/3` argument list.
+    @impl true
+    def mask(_candidate, _content, _role) do
+      {:error,
+       {:renderer_exit,
+        {:timeout,
+         {GenServer, :call, [self(), {:capture_screenshot, {:html, @page_document}}, 5_000]}}}}
+    end
+  end
+
   alias CircleStory.Books.Composition.Layout
   alias CircleStory.Books.Composition.Quality
 
@@ -69,6 +104,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     Candidate,
     Candidates,
     Context,
+    Diagnostics,
     Geometry,
     Policy,
     Regions,
@@ -472,11 +508,86 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
            }
 
     assert provenance.mask_render_errors == [
-             %{candidate_id: "candidate-9", reason: ":mask_timeout"}
+             %{candidate_id: "candidate-9", reason: "mask_timeout"}
            ]
 
     assert {:ok, encoded} = Jason.encode(provenance)
     assert %{"attempts" => %{"untreated" => %{"scanned" => 3}}} = Jason.decode!(encoded)
+  end
+
+  test "renderer and image-library faults persist as bounded classes, not their raw terms" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+    page_text = "Nani wove her fierce love into every single thread"
+    document = "<html><body>#{page_text}</body></html>"
+    vips_detail = String.duplicate("VipsJpeg: out of order read at line 3; ", 60)
+
+    result = %Result{
+      candidate: evaluated_candidate("winner", 0, rect, 24, []),
+      contract_version: Policy.contract_version(),
+      candidate_count: 4,
+      rejected_count: 2,
+      scored_count: 3,
+      untreated:
+        Attempts.summarize(:untreated, [
+          evaluated_candidate("u0", 1, rect, 24, [{:image_binary_failed, vips_detail}]),
+          evaluated_candidate("u1", 2, rect, 24, [{:image_binary_failed, vips_detail}])
+        ]),
+      treated: Attempts.summarize(:treated, []),
+      mask_render_errors: [
+        {"candidate-1",
+         {:renderer_exit,
+          {:timeout,
+           {GenServer, :call, [self(), {:capture_screenshot, {:html, document}}, 5_000]}}}},
+        {"candidate-2",
+         {:renderer_exception, ArgumentError, "argument error raised over #{document}"}},
+        {"candidate-3", document}
+      ]
+    }
+
+    provenance = Result.provenance(result)
+
+    assert provenance.mask_render_errors == [
+             %{candidate_id: "candidate-1", reason: "renderer_exit:timeout:GenServer:call"},
+             %{candidate_id: "candidate-2", reason: "renderer_exception:ArgumentError"},
+             %{candidate_id: "candidate-3", reason: "string"}
+           ]
+
+    assert provenance.attempts.untreated.rejection_reasons == %{"image_binary_failed" => 2}
+
+    assert {:ok, encoded} = Jason.encode(provenance)
+    refute encoded =~ page_text
+    refute encoded =~ "<html"
+    refute encoded =~ "VipsJpeg"
+  end
+
+  test "every finalist mask failing is reported as a renderer fault with bounded reasons" do
+    policy = test_policy(candidate_transforms: [:seed], finalist_limit: 2)
+    seed = %{x: 520, y: 40, w: 220, h: 220}
+
+    assert {:error, {:composition_mask_render_failed, errors}} =
+             Quality.optimize(
+               Image.new!(800, 400, color: :white),
+               %{text: "hello"},
+               placement(),
+               seed,
+               policy: policy,
+               renderer: MaskFailureRenderer
+             )
+
+    assert errors != []
+
+    classes = Enum.map(errors, fn {_id, reason} -> Diagnostics.reason_class(reason) end)
+    assert Enum.uniq(classes) == ["renderer_exit:timeout:GenServer:call"]
+
+    assert MaskFailureRenderer.page_document() =~ "Nani wove"
+    refute Enum.any?(classes, &String.contains?(&1, "Nani"))
+  end
+
+  test "a diagnostic class is capped in depth and in length" do
+    assert Diagnostics.reason_class({:a, {:b, {:c, {:d, {:e, :f}}}}}) == "a:b:c:d"
+
+    long = String.to_atom(String.duplicate("renderer_", 20))
+    assert String.length(Diagnostics.reason_class({long, long})) == 96
   end
 
   test "cover geometry is derived from the front panel rather than restated" do

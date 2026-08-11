@@ -7,7 +7,7 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
   rejection reasons are summarized separately and never merged.
   """
 
-  alias CircleStory.Books.Composition.Quality.Candidate
+  alias CircleStory.Books.Composition.Quality.{Candidate, Diagnostics}
 
   @enforce_keys [:kind]
   defstruct @enforce_keys ++ [scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}]
@@ -68,6 +68,5 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
 
   defp decode_reasons(_reasons), do: %{}
 
-  defp label(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp label(reason), do: inspect(reason)
+  defp label(reason), do: Diagnostics.reason_class(reason)
 end

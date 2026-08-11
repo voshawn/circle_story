@@ -88,7 +88,20 @@ backing therefore still records that plain ink was scanned first and exactly
 which gate refused every one of those scans. The same split appears in
 `{:composition_quality_failed, details}` and in the development evaluation UI.
 Renderer faults that prevented a finalist mask are listed as
-`mask_render_errors` (candidate id and inspected reason only).
+`mask_render_errors` (candidate id and a bounded fault class only).
+
+Renderer and image-library terms are never persisted or displayed verbatim. A
+ChromicPDF exit reason carries the whole `GenServer.call/3` argument list, which
+includes the page document, and an exception message can quote whatever it was
+raised over. `Quality.Diagnostics.reason_class/1` reduces every such reason to a
+class built only from the atom tags naming the fault — `renderer_exit:timeout`,
+`renderer_exception:ArgumentError`, `image_binary_failed` — with any other
+payload contributing its type and nothing else, capped at four segments and 96
+characters. Attempt `rejection_reasons` keys pass through the same reduction, so
+sidecar size and privacy do not depend on what a third-party library chose to
+put in an error term. When every finalist mask fails, the composition returns
+`{:composition_mask_render_failed, errors}`, reported to the operator as a local
+Chrome fault rather than as page content to rewrite.
 
 A browser that returns no usable measurement at all is reported as
 `{:composition_measurement_failed, details}` with `reason:

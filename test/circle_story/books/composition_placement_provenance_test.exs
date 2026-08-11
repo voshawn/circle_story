@@ -5,6 +5,8 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
   alias CircleStory.Books.Composition.ImageOps
   alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Policy, Result}
 
+  @private_page_text "Nani wove her fierce love into every single thread"
+
   setup do
     dir =
       Path.join(
@@ -113,12 +115,17 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
            }
 
     assert quality.mask_render_errors == [
-             %{candidate_id: "candidate-8", reason: ":mask_timeout"}
+             %{candidate_id: "candidate-8", reason: "renderer_exit:timeout:GenServer:call"},
+             %{candidate_id: "candidate-9", reason: "renderer_exception:ArgumentError"}
            ]
 
     encoded = raw |> ImageOps.bbox_path() |> File.read!()
     refute encoded =~ "story_text"
     refute encoded =~ "image_path"
+
+    # The renderer terms behind those two failures both quoted the page document.
+    refute encoded =~ @private_page_text
+    refute encoded =~ "<html"
   end
 
   test "a superseded deterministic contract is invalidated on read", %{raw: raw} do
@@ -161,9 +168,24 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
           scored_candidate("winner", 4, rect, []),
           scored_candidate("t1", 5, rect, [:local_contrast_fraction])
         ]),
-      mask_render_errors: [{"candidate-8", :mask_timeout}]
+      mask_render_errors: [
+        {"candidate-8", renderer_exit_quoting_the_page()},
+        {"candidate-9",
+         {:renderer_exception, ArgumentError,
+          "no function clause matching for #{page_document()}"}}
+      ]
     }
   end
+
+  # The shape a ChromicPDF call timeout actually exits with: the whole
+  # `GenServer.call/3` argument list, page document included.
+  defp renderer_exit_quoting_the_page do
+    {:renderer_exit,
+     {:timeout,
+      {GenServer, :call, [self(), {:capture_screenshot, {:html, page_document()}}, 5_000]}}}
+  end
+
+  defp page_document, do: "<html><body>#{@private_page_text}</body></html>"
 
   defp scored_candidate(id, index, rect, rejections) do
     %Candidate{

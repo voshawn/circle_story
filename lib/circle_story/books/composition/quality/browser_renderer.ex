@@ -94,7 +94,8 @@ defmodule CircleStory.Books.Composition.Quality.BrowserRenderer do
       encoded when is_binary(encoded) -> decode_measurements(encoded)
     end
   rescue
-    exception -> {:error, {:renderer_exception, Exception.message(exception)}}
+    exception ->
+      {:error, {:renderer_exception, exception.__struct__, Exception.message(exception)}}
   catch
     :exit, reason -> {:error, {:renderer_exit, reason}}
   end
@@ -125,7 +126,8 @@ defmodule CircleStory.Books.Composition.Quality.BrowserRenderer do
       {:error, reason} -> {:error, reason}
     end
   rescue
-    exception -> {:error, {:renderer_exception, Exception.message(exception)}}
+    exception ->
+      {:error, {:renderer_exception, exception.__struct__, Exception.message(exception)}}
   catch
     :exit, reason -> {:error, {:renderer_exit, reason}}
   end
