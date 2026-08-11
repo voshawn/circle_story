@@ -1,5 +1,5 @@
 defmodule CircleStoryWeb.DevArtifactControllerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias CircleStoryWeb.DevArtifactController
 
@@ -47,6 +47,31 @@ defmodule CircleStoryWeb.DevArtifactControllerTest do
                "noise_src.png",
                priv_dir: context.priv_dir
              )
+  end
+
+  test "serves a thumbnail when an artifact version query is present" do
+    dir = Path.join(:code.priv_dir(:circle_story), "generated_images")
+    basename = "inner_9_99#{System.unique_integer([:positive])}.png"
+    path = Path.join(dir, basename)
+
+    File.mkdir_p!(dir)
+    Image.write!(Image.new!(8, 8, color: :blue), path)
+    on_exit(fn -> File.rm(path) end)
+
+    conn =
+      :get
+      |> Plug.Test.conn("/dev/books/nani/artifacts/generated/#{basename}")
+      |> DevArtifactController.show(%{
+        "root" => "generated",
+        "basename" => basename,
+        "variant" => "thumbnail",
+        "v" => "1786417847-1234"
+      })
+
+    assert conn.status == 200
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, no-store"]
+    assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/jpeg"]
+    assert <<0xFF, 0xD8, _rest::binary>> = conn.resp_body
   end
 
   test "rejects traversal and never resolves the private source root", context do

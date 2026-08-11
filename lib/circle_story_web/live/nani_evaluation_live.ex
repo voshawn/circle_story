@@ -510,11 +510,12 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       basename = Path.basename(path)
       base_url = "/dev/books/nani/artifacts/#{root}/#{URI.encode(basename)}"
       stat = File.stat!(path, time: :posix)
+      version = "#{stat.mtime}-#{stat.size}"
 
       %{
         basename: basename,
-        full_url: base_url,
-        thumbnail_url: base_url <> "?variant=thumbnail",
+        full_url: base_url <> "?v=#{version}",
+        thumbnail_url: base_url <> "?variant=thumbnail&v=#{version}",
         generated_at: filename_timestamp(basename),
         modified_at: format_timestamp(stat.mtime)
       }
