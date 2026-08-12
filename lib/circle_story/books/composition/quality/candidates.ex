@@ -132,17 +132,13 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     up = Geometry.extend(seed, :up, step, canvas)
     down = Geometry.extend(seed, :down, step, canvas)
 
-    horizontal =
-      seed |> Geometry.extend(:left, step, canvas) |> Geometry.extend(:right, step, canvas)
-
-    vertical = seed |> Geometry.extend(:up, step, canvas) |> Geometry.extend(:down, step, canvas)
+    horizontal = Geometry.extend(left, :right, step, canvas)
+    vertical = Geometry.extend(up, :down, step, canvas)
 
     all =
-      seed
+      vertical
       |> Geometry.extend(:left, step, canvas)
       |> Geometry.extend(:right, step, canvas)
-      |> Geometry.extend(:up, step, canvas)
-      |> Geometry.extend(:down, step, canvas)
 
     [
       {:grow_left, left},

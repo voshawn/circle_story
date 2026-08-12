@@ -40,8 +40,7 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
              Geometry.distance(seed_rect, candidate.rect) /
                max(policy.growth_step, 1)),
       whitespace_balance: whitespace_balance(margins),
-      edge_quietness: max(1 - candidate.metrics.edge_density, 0),
-      treatment_restraint: treatment_restraint(candidate.treatment)
+      edge_quietness: max(1 - candidate.metrics.edge_density, 0)
     }
 
     contributions =
@@ -58,7 +57,9 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
   end
 
   # Soft weights rank layouts, never treatment strength: a stronger backing can
-  # only win when no weaker treatment passed the hard gates at all.
+  # only win when no weaker treatment passed the hard gates at all. Because that
+  # is settled here, before ranking, no soft weight over treatment strength could
+  # affect the ordering, so none exists.
   defp weakest_passing_treatment(passing) do
     weakest = passing |> Enum.map(&treatment_strength(&1.treatment)) |> Enum.min()
     Enum.filter(passing, &(treatment_strength(&1.treatment) == weakest))
@@ -83,7 +84,4 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
     vertical = 1 - abs(margins.top - margins.bottom) / max(margins.top + margins.bottom, 1)
     max((horizontal + vertical) / 2, 0)
   end
-
-  defp treatment_restraint(nil), do: 1.0
-  defp treatment_restraint(%{opacity: opacity}), do: max(1 - opacity, 0)
 end

@@ -8,7 +8,7 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
   """
 
   alias CircleStory.Books.Composition.Luminance
-  alias CircleStory.Books.Composition.Quality.Policy
+  alias CircleStory.Books.Composition.Quality.{ImageRead, Policy}
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
@@ -18,23 +18,39 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
   @type t :: %__MODULE__{}
 
   @doc "Build black/white readability information from fitted art."
-  @spec build(Vix.Vips.Image.t(), Policy.t()) :: t()
+  @spec build(Vix.Vips.Image.t(), Policy.t()) :: {:ok, t()} | {:error, term()}
   def build(image, %Policy{} = policy) do
-    image_w = Image.width(image)
-    image_h = Image.height(image)
-    grid_w = ceil_div(image_w, policy.map_cell_size)
-    grid_h = ceil_div(image_h, policy.map_cell_size)
+    ImageRead.guard(fn ->
+      image_w = Image.width(image)
+      image_h = Image.height(image)
+      grid_w = ceil_div(image_w, policy.map_cell_size)
+      grid_h = ceil_div(image_h, policy.map_cell_size)
 
-    # The cell reads below index one byte per band, so non-uchar source art is
-    # cast rather than trusted to already be 8-bit.
-    sampled =
-      image
-      |> Image.to_colorspace!(:srgb)
-      |> Image.thumbnail!("#{grid_w}x#{grid_h}", resize: :force)
-      |> Operation.cast!(:VIPS_FORMAT_UCHAR)
+      # The cell reads below index one byte per band, so non-uchar source art is
+      # cast rather than trusted to already be 8-bit.
+      sampled =
+        image
+        |> Image.to_colorspace!(:srgb)
+        |> Image.thumbnail!("#{grid_w}x#{grid_h}", resize: :force)
+        |> Operation.cast!(:VIPS_FORMAT_UCHAR)
 
-    {:ok, binary} = VipsImage.write_to_binary(sampled)
-    bands = Image.bands(sampled)
+      shape = %{
+        grid_w: grid_w,
+        grid_h: grid_h,
+        image_w: image_w,
+        image_h: image_h,
+        bands: Image.bands(sampled)
+      }
+
+      case VipsImage.write_to_binary(sampled) do
+        {:ok, binary} -> {:ok, from_binary(binary, shape, policy)}
+        {:error, reason} -> {:error, {:image_binary_failed, reason}}
+      end
+    end)
+  end
+
+  defp from_binary(binary, shape, policy) do
+    %{grid_w: grid_w, grid_h: grid_h, bands: bands} = shape
 
     luminances =
       for index <- 0..(grid_w * grid_h - 1) do
@@ -48,8 +64,8 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
       end
       |> List.to_tuple()
 
-    black_luminance = Luminance.relative([26, 26, 26])
-    white_luminance = Luminance.relative([250, 250, 250])
+    black_luminance = :black |> Luminance.rgb() |> Luminance.relative()
+    white_luminance = :white |> Luminance.rgb() |> Luminance.relative()
 
     cells =
       for y <- 0..(grid_h - 1), x <- 0..(grid_w - 1) do
@@ -71,8 +87,8 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
       cell_size: policy.map_cell_size,
       grid_w: grid_w,
       grid_h: grid_h,
-      image_w: image_w,
-      image_h: image_h,
+      image_w: shape.image_w,
+      image_h: shape.image_h,
       cells: cells
     }
   end

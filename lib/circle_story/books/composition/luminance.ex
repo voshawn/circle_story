@@ -22,8 +22,20 @@ defmodule CircleStory.Books.Composition.Luminance do
   end
 
   @threshold 153.0
-  @black "#1A1A1A"
-  @white "#FAFAFA"
+
+  # The single source of ink color. The deterministic quality gates score the
+  # exact channels the page paints, so the scorer, the safety map, and the page
+  # markup all read these rather than restating them.
+  @ink %{black: [26, 26, 26], white: [250, 250, 250]}
+
+  @ink_hex Map.new(@ink, fn {color, channels} ->
+             {color,
+              "#" <>
+                Enum.map_join(
+                  channels,
+                  &(&1 |> Integer.to_string(16) |> String.pad_leading(2, "0"))
+                )}
+           end)
 
   @linear_channels 0..255 |> Enum.map(&Srgb.linear/1) |> List.to_tuple()
 
@@ -49,10 +61,13 @@ defmodule CircleStory.Books.Composition.Luminance do
     if luminance(rgb) >= @threshold, do: :black, else: :white
   end
 
+  @doc "Ink `[r, g, b]` channels for a chosen color."
+  @spec rgb(:black | :white) :: [non_neg_integer()]
+  def rgb(color) when color in [:black, :white], do: Map.fetch!(@ink, color)
+
   @doc "Ink hex for a chosen color."
   @spec hex(:black | :white) :: String.t()
-  def hex(:black), do: @black
-  def hex(:white), do: @white
+  def hex(color) when color in [:black, :white], do: Map.fetch!(@ink_hex, color)
 
   defp linear_channel(channel) when is_integer(channel) and channel >= 0 and channel <= 255,
     do: elem(@linear_channels, channel)

@@ -13,6 +13,7 @@ defmodule CircleStory.Books.PageComponents do
   use Phoenix.Component
 
   alias CircleStory.Books.Composition.Layout
+  alias CircleStory.Books.Composition.Luminance
 
   @blurb_lines [
     "Circle Storybooks",
@@ -358,7 +359,7 @@ defmodule CircleStory.Books.PageComponents do
   defp backing_css(nil), do: ""
 
   defp backing_css(%{type: :backing, color: color, opacity: opacity}) do
-    {red, green, blue} = if color == :white, do: {250, 250, 250}, else: {26, 26, 26}
+    [red, green, blue] = Luminance.rgb(color)
     "background:rgba(#{red},#{green},#{blue},#{opacity});border-radius:24px;"
   end
 

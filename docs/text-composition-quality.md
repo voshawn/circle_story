@@ -46,8 +46,12 @@ Hard failures cannot be offset by weights:
 
 Passing candidates retain named metrics and weighted contributions for
 readability margin, font size, compactness, seed proximity, whitespace balance,
-edge quietness, and treatment restraint. The selected candidate therefore has
-an inspectable vector rather than an opaque score.
+and edge quietness. The selected candidate therefore has an inspectable vector
+rather than an opaque score.
+
+Treatment strength is deliberately not a soft weight. The weakest passing
+treatment is enforced before ranking, so any weight over it could never change
+the ordering; the chosen treatment type and opacity remain in provenance.
 
 ## Long text and fallback
 
@@ -166,6 +170,10 @@ sample accumulator; the pixel index is threaded as a plain argument so the
 majority of pixels that contribute nothing cost no map update. The sRGB gamma
 expansion behind every relative-luminance read is a compile-time 256-entry
 table rather than a `:math.pow/2` call per channel per pixel.
-Busy artwork that needs the
-strongest backing is therefore the case to calibrate against, not the no-backing
-measurement above.
+
+Per-scan cost still scales with glyph area, and the cover role's much larger
+fonts produce far more glyph pixels per scan than the measured inner role. No
+full-size cover measurement is claimed here: busy cover artwork that needs the
+strongest backing is the heaviest production path and is deliberately left
+unmeasured in this change. Benchmarking and calibrating it is tracked as GitHub
+issue #13.

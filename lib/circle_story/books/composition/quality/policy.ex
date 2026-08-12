@@ -16,8 +16,7 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
     compactness: 1.2,
     seed_proximity: 1.0,
     whitespace_balance: 0.8,
-    edge_quietness: 0.5,
-    treatment_restraint: 1.0
+    edge_quietness: 0.5
   }
 
   @enforce_keys [
@@ -94,20 +93,19 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
     %{x: left, y: inset, w: max(right - left, 1), h: height - 2 * inset}
   end
 
-  defp defaults(:inner) do
+  # Gates and thresholds are shared by construction: a role states only what it
+  # genuinely differs on, so a newly added gate applies to both roles.
+  defp defaults(role), do: Map.merge(shared_defaults(), role_defaults(role))
+
+  defp shared_defaults do
     %{
-      role: :inner,
       contract_version: @contract_version,
-      dimensions: Layout.inner_dims(),
       outer_inset: Layout.safe_inset(),
       # No authoritative binding number exists yet. A zero rect-level fold inset
       # preserves current geometry; the internal glyph inset still keeps ink away.
       fold_inset: 0,
       internal_inset: 48,
       min_font: 24,
-      preferred_font: 64,
-      font_caps: [64, 56, 48],
-      growth_step: 64,
       growth_steps: 3,
       map_cell_size: 32,
       candidate_transforms: [:seed, :grow, :translate, :wrap],
@@ -129,38 +127,25 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
     }
   end
 
-  defp defaults(:cover) do
+  defp role_defaults(:inner) do
+    %{
+      role: :inner,
+      dimensions: Layout.inner_dims(),
+      preferred_font: 64,
+      font_caps: [64, 56, 48],
+      growth_step: 64
+    }
+  end
+
+  defp role_defaults(:cover) do
     front = Layout.front_region_local()
 
     %{
       role: :cover,
-      contract_version: @contract_version,
       dimensions: {front.w, front.h},
-      outer_inset: Layout.safe_inset(),
-      fold_inset: 0,
-      internal_inset: 48,
-      min_font: 24,
       preferred_font: 360,
       font_caps: [360, 300, 240],
-      growth_step: 80,
-      growth_steps: 3,
-      map_cell_size: 32,
-      candidate_transforms: [:seed, :grow, :translate, :wrap],
-      alignments: [:seed, :center, :left, :right],
-      valignments: [:seed, :middle, :top, :bottom],
-      finalist_limit: 10,
-      hard_contrast: 3.0,
-      target_contrast: 4.5,
-      max_low_contrast_fraction: 0.05,
-      tile_size_ratio: 1.5,
-      tile_stride_ratio: 0.5,
-      min_tile_samples: 48,
-      edge_threshold: 0.08,
-      max_unsafe_strip_fraction: 0.35,
-      max_edge_strip_fraction: 0.5,
-      max_saliency_strip_fraction: 0.6,
-      backing_opacities: [0.44, 0.6, 0.78],
-      soft_weights: @default_weights
+      growth_step: 80
     }
   end
 end

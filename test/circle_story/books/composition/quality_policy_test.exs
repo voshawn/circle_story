@@ -165,7 +165,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       |> Image.compose!(Image.new!(200, 200, color: :white), x: 200, y: 0)
 
     policy = Policy.new(:cover, dimensions: {400, 200}, outer_inset: 0, map_cell_size: 20)
-    map = SafetyMap.build(art, policy)
+    map = safety_map(art, policy)
 
     dark_for_white = SafetyMap.summarize(map, %{x: 0, y: 0, w: 180, h: 200}, :white, policy)
     dark_for_black = SafetyMap.summarize(map, %{x: 0, y: 0, w: 180, h: 200}, :black, policy)
@@ -195,7 +195,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
         edge_threshold: 0.01
       )
 
-    map = SafetyMap.build(art, policy)
+    map = safety_map(art, policy)
     full = SafetyMap.summarize(map, %{x: 0, y: 0, w: 400, h: 200}, :black, policy)
 
     assert full.unsafe_fraction > 0.1
@@ -239,7 +239,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       policy: policy,
       renderer: nil,
       bounds: Policy.bounds_for_seed(policy, seed),
-      safety_map: SafetyMap.build(art, policy)
+      safety_map: safety_map(art, policy)
     }
 
     assert {:ok, expanded} = Regions.expand(context)
@@ -265,7 +265,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       policy: policy,
       renderer: nil,
       bounds: Policy.bounds_for_seed(policy, seed),
-      safety_map: SafetyMap.build(art, policy)
+      safety_map: safety_map(art, policy)
     }
 
     assert {:ok, expanded} = Regions.expand(context)
@@ -297,7 +297,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       renderer: ConvergedFitRenderer,
       bounds: bounds,
       safe_canvas: bounds,
-      safety_map: SafetyMap.build(art, policy)
+      safety_map: safety_map(art, policy)
     }
 
     assert {:ok, generated} = Candidates.generate(context)
@@ -524,7 +524,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     policy =
       test_policy(
         preferred_font: 36,
-        soft_weights: %{font_size: 10.0, treatment_restraint: 1.0}
+        soft_weights: %{font_size: 10.0}
       )
 
     weak = backed_candidate("weak-backing", 0, rect, 24, 0.44)
@@ -624,8 +624,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
           compactness: 0.0,
           seed_proximity: 0.0,
           whitespace_balance: 0.0,
-          edge_quietness: 0.0,
-          treatment_restraint: 0.0
+          edge_quietness: 0.0
         }
       )
 
@@ -651,8 +650,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
           compactness: 0.0,
           seed_proximity: 0.0,
           whitespace_balance: 0.0,
-          edge_quietness: 0.0,
-          treatment_restraint: 0.0
+          edge_quietness: 0.0
         }
       )
 
@@ -685,7 +683,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       policy: policy,
       renderer: nil,
       bounds: Policy.bounds_for_seed(policy, seed),
-      safety_map: SafetyMap.build(art, policy)
+      safety_map: safety_map(art, policy)
     }
 
     assert seed.x == Policy.bounds_for_seed(policy, seed).x
@@ -942,6 +940,11 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       bounds: Policy.bounds_for_seed(policy, seed),
       safe_canvas: Policy.bounds_for_seed(policy, seed)
     }
+  end
+
+  defp safety_map(art, policy) do
+    assert {:ok, map} = SafetyMap.build(art, policy)
+    map
   end
 
   defp test_policy(overrides \\ []) do

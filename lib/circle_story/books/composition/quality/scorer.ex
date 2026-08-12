@@ -2,13 +2,11 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
   @moduledoc "Full-resolution hard readability gates over actual browser-rendered glyph masks."
 
   alias CircleStory.Books.Composition.Luminance
-  alias CircleStory.Books.Composition.Quality.{Candidate, Policy}
+  alias CircleStory.Books.Composition.Quality.{Candidate, ImageRead, Policy}
   alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @core_threshold 128
-  @black [26, 26, 26]
-  @white [250, 250, 250]
 
   @spec score(
           Vix.Vips.Image.t(),
@@ -24,7 +22,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     with {:ok, art_binary, mask_binary} <- binaries(art, candidate.rect, mask) do
       tile_size = max(round(candidate.measure.font_size * policy.tile_size_ratio), 16)
       tile_stride = max(round(tile_size * policy.tile_stride_ratio), 1)
-      ink_luminance = Luminance.relative(if(ink == :black, do: @black, else: @white))
+      ink_luminance = ink |> Luminance.rgb() |> Luminance.relative()
 
       samples =
         scan(
@@ -50,24 +48,26 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
   end
 
   defp binaries(art, rect, mask) do
-    art_crop =
-      art
-      |> Image.crop!(rect.x, rect.y, rect.w, rect.h)
-      |> normalize_rgb()
+    ImageRead.guard(fn ->
+      art_crop =
+        art
+        |> Image.crop!(rect.x, rect.y, rect.w, rect.h)
+        |> normalize_rgb()
 
-    mask_band =
-      mask
-      |> normalize_rgb()
-      |> Operation.extract_band!(0)
+      mask_band =
+        mask
+        |> normalize_rgb()
+        |> Operation.extract_band!(0)
 
-    with true <- Image.width(mask_band) == rect.w and Image.height(mask_band) == rect.h,
-         {:ok, art_binary} <- VipsImage.write_to_binary(art_crop),
-         {:ok, mask_binary} <- VipsImage.write_to_binary(mask_band) do
-      {:ok, art_binary, mask_binary}
-    else
-      false -> {:error, :mask_geometry_mismatch}
-      {:error, reason} -> {:error, {:image_binary_failed, reason}}
-    end
+      with true <- Image.width(mask_band) == rect.w and Image.height(mask_band) == rect.h,
+           {:ok, art_binary} <- VipsImage.write_to_binary(art_crop),
+           {:ok, mask_binary} <- VipsImage.write_to_binary(mask_band) do
+        {:ok, art_binary, mask_binary}
+      else
+        false -> {:error, :mask_geometry_mismatch}
+        {:error, reason} -> {:error, {:image_binary_failed, reason}}
+      end
+    end)
   end
 
   # Raw binary reads below assume exactly one byte per band, so the source art
@@ -198,9 +198,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
   defp effective_background(rgb, nil), do: rgb
 
   defp effective_background(rgb, %{type: :backing, color: color, opacity: opacity}) do
-    backing = if color == :white, do: @white, else: @black
-
-    Enum.zip_with(rgb, backing, fn source, overlay ->
+    Enum.zip_with(rgb, Luminance.rgb(color), fn source, overlay ->
       round(source * (1 - opacity) + overlay * opacity)
     end)
   end

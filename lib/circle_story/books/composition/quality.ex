@@ -82,9 +82,11 @@ defmodule CircleStory.Books.Composition.Quality do
   end
 
   @doc false
-  @spec build_safety_map(Context.t()) :: {:ok, Context.t()}
+  @spec build_safety_map(Context.t()) :: {:ok, Context.t()} | {:error, term()}
   def build_safety_map(%Context{} = context) do
-    {:ok, %{context | safety_map: SafetyMap.build(context.image, context.policy)}}
+    with {:ok, safety_map} <- SafetyMap.build(context.image, context.policy) do
+      {:ok, %{context | safety_map: safety_map}}
+    end
   end
 
   @doc false
