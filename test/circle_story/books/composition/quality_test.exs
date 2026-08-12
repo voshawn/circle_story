@@ -99,9 +99,9 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert result.candidate.hard_rejections == []
     assert result.candidate.metrics.worst_tile_p10 >= policy.hard_contrast
 
-    max_pairs = 2 * policy.finalist_limit
+    pairs = 2 * policy.finalist_limit
     assert result.scored_count > 0
-    assert result.scored_count <= 2 * max_pairs
+    assert result.scored_count <= pairs * (1 + length(policy.backing_opacities))
 
     # The untreated rejection is exactly the evidence that justifies the backing,
     # so it must survive the treated pass instead of being replaced by it.

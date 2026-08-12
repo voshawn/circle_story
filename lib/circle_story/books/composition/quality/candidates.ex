@@ -94,11 +94,19 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     finalists =
       context.measured
       |> Enum.filter(&(&1.hard_rejections == []))
+      |> Enum.uniq_by(&layout_key/1)
       |> Enum.map(&put_preselection_evidence(&1, context))
       |> Enum.sort_by(&{-&1.metrics.preselection_score, &1.index})
       |> Enum.take(context.policy.finalist_limit)
 
     {:ok, %{context | finalists: finalists}}
+  end
+
+  # Distinct font caps that the browser fits to the same size describe the same
+  # rendered layout, so only the earliest of them may occupy a finalist slot.
+  defp layout_key(candidate) do
+    {candidate.rect, candidate.align, candidate.valign,
+     Float.round(candidate.measure.font_size * 1.0, 2)}
   end
 
   @doc false

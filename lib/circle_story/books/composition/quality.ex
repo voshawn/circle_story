@@ -168,33 +168,36 @@ defmodule CircleStory.Books.Composition.Quality do
     |> then(fn {rendered, errors} -> {Enum.reverse(rendered), errors} end)
   end
 
-  # The bounded opacity list is walked weakest-to-strongest and abandoned at the
-  # first opacity where some finalist/ink pair clears the hard gates, so the
-  # stronger backings are never scanned once a lighter one works. Every finalist
-  # and both inks are retained at that opacity so ranking still has the full
-  # field, and every scanned attempt — including the weaker opacities that were
-  # rejected on the way — is kept so the evidence accounts for the total work.
+  # Each finalist/ink pair walks the bounded opacity list weakest-to-strongest
+  # on its own and stops at the first treatment that clears every hard gate, so
+  # a pair the lightest backing fixes never pays for the stronger ones while a
+  # pair that only a stronger backing can fix is still scored. Every finalist
+  # and both inks are retained, and every scanned attempt — including the weaker
+  # opacities rejected on the way — is kept so the evidence accounts for the
+  # total work. `Selection` still refuses to let a stronger passing treatment
+  # outrank a weaker passing one.
   defp backing_variants(rendered, context) do
     pairs =
       for {candidate, mask} <- rendered,
           {ink, color} <- [black: :white, white: :black],
           do: {candidate, mask, ink, color}
 
-    Enum.reduce_while(context.policy.backing_opacities, [], fn opacity, attempted ->
-      variants =
-        Enum.map(pairs, fn {candidate, mask, ink, color} ->
+    context.policy.backing_opacities
+    |> Enum.reduce_while({pairs, []}, fn opacity, {unresolved, attempted} ->
+      scored =
+        Enum.map(unresolved, fn {candidate, mask, ink, color} = pair ->
           treatment = %{type: :backing, color: color, opacity: opacity}
-          Scorer.score(context.image, candidate, mask, context.policy, ink, treatment)
+          {pair, Scorer.score(context.image, candidate, mask, context.policy, ink, treatment)}
         end)
 
-      attempted = attempted ++ variants
+      attempted = attempted ++ Enum.map(scored, &elem(&1, 1))
 
-      if Enum.any?(variants, &(&1.hard_rejections == [])) do
-        {:halt, attempted}
-      else
-        {:cont, attempted}
+      case for({pair, variant} <- scored, variant.hard_rejections != [], do: pair) do
+        [] -> {:halt, {[], attempted}}
+        remaining -> {:cont, {remaining, attempted}}
       end
     end)
+    |> elem(1)
   end
 
   defp mode_to_role(placement, opts) do

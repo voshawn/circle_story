@@ -12,6 +12,7 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
       passing ->
         {:ok,
          passing
+         |> weakest_passing_treatment()
          |> Enum.map(&rank(&1, seed_rect, policy))
          |> Enum.max_by(fn candidate ->
            {
@@ -55,6 +56,16 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
         soft_total: Enum.sum(Map.values(contributions))
     }
   end
+
+  # Soft weights rank layouts, never treatment strength: a stronger backing can
+  # only win when no weaker treatment passed the hard gates at all.
+  defp weakest_passing_treatment(passing) do
+    weakest = passing |> Enum.map(&treatment_strength(&1.treatment)) |> Enum.min()
+    Enum.filter(passing, &(treatment_strength(&1.treatment) == weakest))
+  end
+
+  defp treatment_strength(nil), do: 0.0
+  defp treatment_strength(%{opacity: opacity}), do: opacity
 
   defp glyph_margins(candidate) do
     bounds = candidate.glyph_bounds

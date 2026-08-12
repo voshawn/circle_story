@@ -96,6 +96,51 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     end
   end
 
+  defmodule ConvergedFitRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    # Every font cap fits to the same size, which is exactly the case where
+    # candidates that differ only in their cap describe one rendered layout.
+    @impl true
+    def measure(candidates, _content, _role) do
+      {:ok,
+       Map.new(
+         candidates,
+         &{&1.id,
+          %{
+            font_size: 24.0,
+            line_count: 1,
+            lines: [%{x: 10, y: 10, w: &1.rect.w - 20, h: 30}],
+            overflow: false,
+            clipped: false
+          }}
+       )}
+    end
+
+    @impl true
+    def mask(_candidate, _content, _role), do: {:error, :not_used}
+  end
+
+  defmodule SolidMaskRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    @impl true
+    def measure(candidates, _content, _role) do
+      {:ok,
+       Map.new(
+         candidates,
+         &{&1.id, %{font_size: 40.0, line_count: 1, lines: [], overflow: false, clipped: false}}
+       )}
+    end
+
+    @impl true
+    def mask(candidate, _content, _role) do
+      {:ok, Image.new!(candidate.rect.w, candidate.rect.h, color: :white)}
+    end
+  end
+
   alias CircleStory.Books.Composition.Layout
   alias CircleStory.Books.Composition.Quality
 
@@ -207,6 +252,67 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
              [:down, :left, :right, :up]
   end
 
+  test "a zero growth-step policy grows the canvas in no direction at all" do
+    policy = test_policy(growth_steps: 0)
+    seed = %{x: 520, y: 80, w: 180, h: 180}
+    art = Image.new!(800, 400, color: :white)
+
+    context = %Context{
+      image: art,
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: Policy.bounds_for_seed(policy, seed),
+      safety_map: SafetyMap.build(art, policy)
+    }
+
+    assert {:ok, expanded} = Regions.expand(context)
+    assert expanded.seed_rect == seed
+    assert expanded.safe_canvas == seed
+    assert Map.values(expanded.evidence.region_expansion) == [[], [], [], []]
+  end
+
+  test "finalist slots are never spent twice on font caps that fit the same layout" do
+    policy =
+      test_policy(
+        candidate_transforms: [:seed, :translate],
+        alignments: [:center],
+        valignments: [:middle],
+        font_caps: [36, 30, 24],
+        finalist_limit: 3
+      )
+
+    seed = %{x: 520, y: 40, w: 160, h: 160}
+    art = Image.new!(800, 400, color: :white)
+    bounds = Policy.bounds_for_seed(policy, seed)
+
+    context = %Context{
+      image: art,
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: ConvergedFitRenderer,
+      bounds: bounds,
+      safe_canvas: bounds,
+      safety_map: SafetyMap.build(art, policy)
+    }
+
+    assert {:ok, generated} = Candidates.generate(context)
+    assert {:ok, measured} = Candidates.measure(generated)
+    assert {:ok, preselected} = Candidates.select_finalists(measured)
+
+    rect_count = measured.measured |> Enum.map(& &1.rect) |> Enum.uniq() |> length()
+    assert length(measured.measured) == 3 * rect_count
+    assert rect_count > policy.finalist_limit
+
+    assert length(preselected.finalists) == policy.finalist_limit
+    assert preselected.finalists |> Enum.map(& &1.rect) |> Enum.uniq() |> length() == 3
+    assert preselected.finalists |> Enum.map(& &1.max_font) |> Enum.uniq() == [36]
+  end
+
   test "candidate transforms are explicit and all generated rects obey the selected page/fold" do
     seed = %{x: 520, y: 40, w: 220, h: 220}
     base_policy = test_policy(candidate_transforms: [:seed])
@@ -292,6 +398,57 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert :glyph_effect_inset in pressed.hard_rejections
   end
 
+  # The tile with the weakest contrast percentile and the tile with the largest
+  # low-contrast fraction are different tiles here, so a gate applied to only
+  # one of them lets the other's unreadable pixels through.
+  test "every tile is gated on its own low-contrast fraction, not the weakest tile's" do
+    art =
+      Image.new!(80, 40, color: :white)
+      |> Image.compose!(Image.new!(8, 4, color: [90, 90, 90]), x: 0, y: 0)
+      |> Image.compose!(Image.new!(16, 8, color: [105, 105, 105]), x: 0, y: 8)
+      |> Image.compose!(Image.new!(14, 8, color: [90, 90, 90]), x: 40, y: 0)
+
+    mask = Image.new!(80, 40, color: :white)
+
+    policy =
+      Policy.new(:cover,
+        dimensions: {80, 40},
+        outer_inset: 0,
+        internal_inset: 0,
+        min_tile_samples: 100,
+        tile_size_ratio: 1.0,
+        tile_stride_ratio: 1.0
+      )
+
+    candidate = %Candidate{
+      id: "two-tiles",
+      index: 0,
+      rect: %{x: 0, y: 0, w: 80, h: 40},
+      align: :left,
+      valign: :middle,
+      min_font: 18,
+      max_font: 40,
+      inset: 0,
+      origin: :seed,
+      measure: %{
+        font_size: 40.0,
+        line_count: 1,
+        lines: [],
+        overflow: false,
+        clipped: false
+      }
+    }
+
+    scored = Scorer.score(art, candidate, mask, policy, :black)
+
+    assert scored.metrics.tile_count == 2
+    assert scored.metrics.worst_tile_p10 >= policy.hard_contrast
+    assert_in_delta scored.metrics.worst_tile_low_contrast_fraction, 0.07, 0.0001
+    assert :local_contrast_fraction in scored.hard_rejections
+    refute :local_contrast_percentile in scored.hard_rejections
+    refute :line_contrast in scored.hard_rejections
+  end
+
   # The scan threads its pixel index outside the sample accumulator, so the art
   # a glyph pixel is judged against must still be the art under its own x/y.
   test "glyph geometry and contrast follow the mask's actual position in the rect" do
@@ -359,6 +516,98 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
     assert {:ok, selected} = Selection.choose([unsafe, safe], safe.rect, policy)
     assert selected.id == "safe"
+  end
+
+  test "a stronger passing treatment never outranks a weaker passing one" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+
+    policy =
+      test_policy(
+        preferred_font: 36,
+        soft_weights: %{font_size: 10.0, treatment_restraint: 1.0}
+      )
+
+    weak = backed_candidate("weak-backing", 0, rect, 24, 0.44)
+    strong = backed_candidate("strong-backing", 1, rect, 36, 0.78)
+
+    assert {:ok, ranked_weak} = Selection.choose([weak], rect, policy)
+    assert {:ok, ranked_strong} = Selection.choose([strong], rect, policy)
+    assert ranked_strong.soft_total > ranked_weak.soft_total
+
+    assert {:ok, %{id: "weak-backing"}} = Selection.choose([strong, weak], rect, policy)
+  end
+
+  # One finalist/ink pair is fixed by the lightest backing while the others need
+  # stronger ones. Halting the whole opacity walk at the first pass would never
+  # score those pairs; halting each pair on its own must still not let their
+  # stronger passing treatment win the page.
+  test "each finalist/ink pair walks backing opacities until it passes, and the weakest wins" do
+    readable = %{x: 0, y: 0, w: 60, h: 40}
+    busy = %{x: 100, y: 0, w: 60, h: 40}
+
+    art =
+      Image.new!(200, 100, color: [150, 150, 150])
+      |> Image.compose!(checkerboard(busy.w, busy.h, 4), x: busy.x, y: busy.y)
+
+    policy =
+      Policy.new(:cover,
+        dimensions: {200, 100},
+        outer_inset: 0,
+        internal_inset: 0,
+        hard_contrast: 8.0,
+        min_tile_samples: 100,
+        tile_size_ratio: 1.0,
+        tile_stride_ratio: 1.0,
+        finalist_limit: 4
+      )
+
+    finalists = [
+      scan_candidate("readable", 0, readable),
+      scan_candidate("busy", 1, busy)
+    ]
+
+    context = %Context{
+      image: art,
+      content: %{text: "hello"},
+      placement: placement(),
+      seed_rect: readable,
+      policy: policy,
+      renderer: SolidMaskRenderer,
+      bounds: Policy.bounds_for_seed(policy, readable),
+      candidates: finalists,
+      finalists: finalists
+    }
+
+    assert {:ok, evaluated} = Quality.run_steps(context, [{Quality, :evaluate_finalists}])
+
+    assert length(evaluated.untreated) == 4
+    assert Enum.all?(evaluated.untreated, &(&1.hard_rejections != []))
+
+    # 4 pairs at 0.44, the 3 still unresolved at 0.6, the 2 still unresolved at
+    # 0.78 — pairs that already passed stop costing scans, unresolved ones do not.
+    assert evaluated.treated |> Enum.map(& &1.treatment.opacity) |> Enum.frequencies() ==
+             %{0.44 => 4, 0.6 => 3, 0.78 => 2}
+
+    passing_opacities =
+      evaluated.treated
+      |> Enum.filter(&(&1.hard_rejections == []))
+      |> Enum.map(& &1.treatment.opacity)
+      |> Enum.sort()
+
+    assert passing_opacities == [0.44, 0.6, 0.78, 0.78]
+
+    assert {:ok, result} = Quality.select_candidate(evaluated)
+
+    assert result.candidate.treatment.opacity == 0.44
+    assert result.candidate.rect == readable
+    assert result.candidate.hard_rejections == []
+    assert result.scored_count == 13
+    assert result.scored_count <= 2 * length(finalists) * (1 + length(policy.backing_opacities))
+    assert result.untreated.scanned == 4
+    assert result.untreated.passed == 0
+    assert result.untreated.rejection_reasons != %{}
+    assert result.treated.scanned == 9
+    assert result.treated.passed == 4
   end
 
   test "soft weights can change ranking only among passing candidates" do
@@ -742,6 +991,51 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       #{Enum.join(squares)}
     </svg>
     """)
+  end
+
+  defp checkerboard(width, height, cell) do
+    squares =
+      for y <- 0..(div(height, cell) - 1),
+          x <- 0..(div(width, cell) - 1),
+          rem(x + y, 2) == 0 do
+        ~s(<rect x="#{x * cell}" y="#{y * cell}" width="#{cell}" height="#{cell}" fill="#000" />)
+      end
+
+    Image.from_svg!("""
+    <svg xmlns="http://www.w3.org/2000/svg" width="#{width}" height="#{height}">
+      <rect width="100%" height="100%" fill="#fff" />
+      #{Enum.join(squares)}
+    </svg>
+    """)
+  end
+
+  defp scan_candidate(id, index, rect) do
+    %Candidate{
+      id: id,
+      index: index,
+      rect: rect,
+      align: :center,
+      valign: :middle,
+      min_font: 18,
+      max_font: 40,
+      inset: 0,
+      origin: :seed,
+      measure: %{
+        font_size: 40.0,
+        line_count: 1,
+        lines: [],
+        overflow: false,
+        clipped: false
+      },
+      metrics: %{preferred_ink: :black}
+    }
+  end
+
+  defp backed_candidate(id, index, rect, font_size, opacity) do
+    %{
+      evaluated_candidate(id, index, rect, font_size, [])
+      | treatment: %{type: :backing, color: :white, opacity: opacity}
+    }
   end
 
   defp evaluated_candidate(id, index, rect, font_size, rejections) do

@@ -273,7 +273,9 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       if line_summaries == [], do: [Map.put(all_summary, :line, :all)], else: line_summaries
 
     worst_tile = Enum.min_by(tile_summaries, &{&1.p10, -&1.low_fraction})
+    worst_tile_fraction = Enum.max_by(tile_summaries, &{&1.low_fraction, -&1.p10})
     worst_line = Enum.min_by(line_summaries, &{&1.p05, -&1.low_fraction})
+    worst_line_fraction = Enum.max_by(line_summaries, &{&1.low_fraction, -&1.p05})
 
     glyph_bounds = %{
       x: samples.min_x,
@@ -286,7 +288,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       candidate.hard_rejections
       |> reject_if(worst_tile.p10 < policy.hard_contrast, :local_contrast_percentile)
       |> reject_if(
-        worst_tile.low_fraction > policy.max_low_contrast_fraction,
+        worst_tile_fraction.low_fraction > policy.max_low_contrast_fraction,
         :local_contrast_fraction
       )
       |> reject_if(worst_line.p05 < policy.hard_contrast, :line_contrast)
@@ -299,10 +301,10 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
         overall_p05: all_summary.p05,
         overall_low_contrast_fraction: all_summary.low_fraction,
         worst_tile_p10: worst_tile.p10,
-        worst_tile_low_contrast_fraction: worst_tile.low_fraction,
+        worst_tile_low_contrast_fraction: worst_tile_fraction.low_fraction,
         worst_tile_variance: worst_tile.variance,
         worst_line_p05: worst_line.p05,
-        worst_line_low_contrast_fraction: worst_line.low_fraction,
+        worst_line_low_contrast_fraction: worst_line_fraction.low_fraction,
         edge_density: samples.edge_count / samples.count,
         tile_count: length(tile_summaries),
         line_count: length(line_summaries)

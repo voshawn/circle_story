@@ -14,6 +14,32 @@ defmodule CircleStory.Books.Composition.LuminanceTest do
     assert_in_delta Luminance.contrast_ratio(0.0, 1.0), 21.0, 0.001
   end
 
+  test "relative/1 matches the sRGB reference curve on every byte channel" do
+    reference = fn channel ->
+      normalized = channel / 255
+
+      if normalized <= 0.04045,
+        do: normalized / 12.92,
+        else: :math.pow((normalized + 0.055) / 1.055, 2.4)
+    end
+
+    for channel <- 0..255 do
+      linear = reference.(channel)
+      expected = 0.2126 * linear + 0.7152 * linear + 0.0722 * linear
+
+      assert Luminance.relative([channel, channel, channel]) == expected
+    end
+  end
+
+  test "relative/1 still accepts fractional channels outside the byte table" do
+    assert_in_delta Luminance.relative([127.5, 127.5, 127.5]),
+                    :math.pow((127.5 / 255 + 0.055) / 1.055, 2.4),
+                    0.000001
+
+    assert Luminance.relative([0, 0, 0]) < Luminance.relative([0.5, 0.5, 0.5])
+    assert Luminance.relative([0.5, 0.5, 0.5]) < Luminance.relative([1, 1, 1])
+  end
+
   test "color_for/1 picks black on light, white on dark" do
     assert Luminance.color_for([240, 240, 240]) == :black
     assert Luminance.color_for([10, 10, 10]) == :white

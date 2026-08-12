@@ -38,8 +38,11 @@ Hard failures cannot be offset by weights:
 - browser scroll geometry reports overflow or clipping;
 - final rect leaves the established page/fold bounds;
 - actual core glyphs leave the conservative internal inset;
-- a line or overlapping local tile fails the configured contrast percentile or
-  low-contrast-fraction gate.
+- a line fails the configured contrast percentile gate, or any overlapping
+  local tile fails the configured contrast percentile or low-contrast-fraction
+  gate. The two tile gates are applied to every tile independently: the tile
+  with the weakest percentile and the tile with the largest low-contrast
+  fraction are usually different tiles, and either one rejects the candidate.
 
 Passing candidates retain named metrics and weighted contributions for
 readability margin, font size, compactness, seed proximity, whitespace balance,
@@ -55,7 +58,11 @@ never changes story wording.
 
 If no untreated finalist passes local contrast, the compositor tries opposite
 black/white rectangular backings at the finite policy opacities 44%, 60%, and
-78%, stopping at the first opacity with a passing candidate. If content still
+78%. Each finalist/ink pair walks that list weakest-to-strongest and stops at
+its own first passing opacity, so pairs that need a stronger backing are still
+scored while resolved pairs stop costing scans. Selection then ranks only the
+passing candidates that share the weakest passing treatment, so a stronger
+backing never outranks a weaker one that already passed. If content still
 cannot fit at the role minimum, the caller receives
 `{:composition_overflow, details}`. The existing print-ready artifact is not
 silently clipped or overwritten by that failed composition.
@@ -144,16 +151,21 @@ before high-volume use.
 
 Full-resolution glyph scanning is the dominant cost and is explicitly bounded.
 Each finalist is scanned once per ink untreated. The backing fallback runs only
-when no untreated variant passes, walks `backing_opacities` weakest-to-strongest,
-and abandons the remaining opacities at the first opacity where some finalist
-and ink clears the hard gates — so a page that the lightest backing fixes never
-pays for the stronger ones. Worst case is
-`2 x finalists x (1 + length(backing_opacities))` scans, and the actual number is
-reported as `scored_count` on the optimizer result — the sum of the untreated
-and treated attempt counts, including the weaker opacities rejected on the way.
+when no untreated variant passes, and each finalist/ink pair then walks
+`backing_opacities` weakest-to-strongest and stops at its own first passing
+opacity — so a pair that the lightest backing fixes never pays for the stronger
+ones. Worst case is `2 x finalists x (1 + length(backing_opacities))` scans, and
+the actual number is reported as `scored_count` on the optimizer result — the
+sum of the untreated and treated attempt counts, including the weaker opacities
+rejected on the way. Finalist preselection first collapses candidates that
+differ only in an unreached font cap, so no finalist slot and no mask render is
+spent twice on one rendered layout.
+
 Within one scan, only pixels at or above the core mask threshold touch the
 sample accumulator; the pixel index is threaded as a plain argument so the
-majority of pixels that contribute nothing cost no map update.
+majority of pixels that contribute nothing cost no map update. The sRGB gamma
+expansion behind every relative-luminance read is a compile-time 256-entry
+table rather than a `:math.pow/2` call per channel per pixel.
 Busy artwork that needs the
 strongest backing is therefore the case to calibrate against, not the no-backing
 measurement above.

@@ -29,7 +29,8 @@ defmodule CircleStory.Books.Composition.Quality.Regions do
   end
 
   defp expand_direction(context, rect, direction) do
-    Enum.reduce_while(1..context.policy.growth_steps, {rect, []}, fn _step, {current, evidence} ->
+    1..context.policy.growth_steps//1
+    |> Enum.reduce_while({rect, []}, fn _step, {current, evidence} ->
       next = Geometry.extend(current, direction, context.policy.growth_step, context.bounds)
 
       if next == current do
