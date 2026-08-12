@@ -14,7 +14,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   alias CircleStory.Books.CharacterSelector.Gemini, as: SelectorGemini
   alias CircleStory.Books.Composition.ImageOps
-  alias CircleStory.Books.Composition.Quality.Diagnostics
+  alias CircleStory.Books.Composition.Quality.{Attempts, Diagnostics}
   alias CircleStory.Books.Templates.NanisMagicThread
 
   @source_extensions ~w(.png .jpg .jpeg .webp)
@@ -322,7 +322,10 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
          |> assign(:ignore_pipeline_exit?, true)
          |> assign(:pending, nil)
          |> assign(:notice, "Action cancelled. Completed files were preserved on disk.")
-         |> assign(:errors, Map.put(socket.assigns.errors, key, "Cancelled by operator."))
+         |> assign(
+           :errors,
+           Map.put(socket.assigns.errors, key, error_entry("Cancelled by operator."))
+         )
          |> refresh_evaluation()}
     end
   end
@@ -370,14 +373,14 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   def handle_async(@pipeline_task, {:ok, {:error, failure}}, socket) do
-    message = format_error(failure.reason)
+    entry = error_entry(failure.reason)
 
     {:noreply,
      socket
      |> assign(:active, nil)
      |> assign(:pending, nil)
      |> assign(:notice, "Action stopped. Previous and completed artifacts remain on disk.")
-     |> assign(:errors, Map.put(socket.assigns.errors, failure.stage.item_key, message))
+     |> assign(:errors, Map.put(socket.assigns.errors, failure.stage.item_key, entry))
      |> refresh_evaluation()}
   end
 
@@ -401,7 +404,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
      |> assign(:active, nil)
      |> assign(:pending, nil)
      |> assign(:notice, "The async action exited. Existing files were retained.")
-     |> assign(:errors, Map.put(socket.assigns.errors, key, format_error(reason)))
+     |> assign(:errors, Map.put(socket.assigns.errors, key, error_entry(reason)))
      |> refresh_evaluation()}
   end
 
@@ -873,12 +876,13 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       "Check Chrome and retry; the page content was not the problem."
   end
 
-  # Every finalist mask failing is the same class of local fault, reported with
-  # bounded fault classes rather than the raw renderer terms behind them.
-  def format_error({:composition_mask_render_failed, errors}) do
-    "The local browser rendered no usable glyph mask for any finalist, so nothing was " <>
-      "composed#{format_mask_render_classes(errors)}. " <>
-      "Check Chrome and retry; the page content was not the problem."
+  # Every finalist mask failing is the same class of local fault. The operator
+  # copy is fixed; the bounded fault classes behind it travel as separate
+  # evidence through `error_evidence/1` rather than inside this sentence.
+  def format_error({:composition_mask_render_failed, _errors}) do
+    "Text readability verification could not run because the local renderer failed. " <>
+      "No composed page was published. Retry composition; if the problem continues, " <>
+      "inspect the local Chrome renderer."
   end
 
   def format_error({:composition_quality_failed, details}) do
@@ -892,18 +896,36 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   def format_error(reason) when is_binary(reason), do: reason
   def format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
 
-  defp format_mask_render_classes([_ | _] = errors) do
-    detail =
-      errors
-      |> Enum.map(fn {_candidate_id, reason} -> Diagnostics.reason_class(reason) end)
-      |> Enum.frequencies()
-      |> Enum.sort_by(fn {class, count} -> {-count, class} end)
-      |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+  @doc """
+  Bounded renderer diagnostics for a failure, kept out of the operator message.
 
-    " (#{detail})"
+  Mask faults arrive as opaque renderer terms that can embed the page document,
+  so only the sanitized class names and their counts are ever surfaced.
+  """
+  @spec error_evidence(term()) :: String.t() | nil
+  def error_evidence({:composition_mask_render_failed, errors}),
+    do: format_mask_render_classes(errors)
+
+  def error_evidence({:composition_quality_failed, details}),
+    do: details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes()
+
+  def error_evidence(_reason), do: nil
+
+  @doc false
+  @spec error_entry(term()) :: %{message: String.t(), evidence: String.t() | nil}
+  def error_entry(reason) do
+    %{message: format_error(reason), evidence: error_evidence(reason)}
   end
 
-  defp format_mask_render_classes(_errors), do: ""
+  defp format_mask_render_classes([_ | _] = errors) do
+    errors
+    |> Enum.map(fn {_candidate_id, reason} -> Diagnostics.reason_class(reason) end)
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {class, count} -> {-count, class} end)
+    |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+  end
+
+  defp format_mask_render_classes(_errors), do: nil
 
   defp error_for(errors, key), do: Map.get(errors, key)
   defp active_for?(nil, _key), do: false
@@ -943,6 +965,11 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   defp format_quality_count(value) when is_integer(value), do: Integer.to_string(value)
   defp format_quality_count(_), do: "—"
+
+  # Live attempt evidence still carries the raw rejection terms it collected, so
+  # it is reduced to the same bounded classes the sidecar persists before display.
+  defp format_quality_attempts(%Attempts{} = attempts),
+    do: attempts |> Attempts.provenance() |> format_quality_attempts()
 
   defp format_quality_attempts(%{scanned: 0}), do: "none scanned"
 

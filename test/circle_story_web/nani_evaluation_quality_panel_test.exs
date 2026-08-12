@@ -2,6 +2,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
 
+  alias CircleStory.Books.Composition.Quality.Attempts
   alias CircleStoryWeb.NaniEvaluationLive
 
   test "the panel reports untreated ink and backing attempts as separate evidence" do
@@ -103,14 +104,68 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
       {"candidate-3", {:renderer_exception, ArgumentError, "raised over #{document}"}}
     ]
 
-    message = NaniEvaluationLive.format_error({:composition_mask_render_failed, errors})
+    entry = NaniEvaluationLive.error_entry({:composition_mask_render_failed, errors})
 
-    assert message =~ "The local browser rendered no usable glyph mask for any finalist"
-    assert message =~ "the page content was not the problem"
-    assert message =~ "renderer_exit:timeout:GenServer:call ×2"
-    assert message =~ "renderer_exception:ArgumentError ×1"
-    refute message =~ page_text
-    refute message =~ "<html"
+    assert entry.message ==
+             "Text readability verification could not run because the local renderer failed. " <>
+               "No composed page was published. Retry composition; if the problem continues, " <>
+               "inspect the local Chrome renderer."
+
+    assert entry.evidence =~ "renderer_exit:timeout:GenServer:call ×2"
+    assert entry.evidence =~ "renderer_exception:ArgumentError ×1"
+    refute entry.evidence =~ page_text
+    refute entry.evidence =~ "<html"
+  end
+
+  test "quality failure evidence is sanitized instead of leaking raw renderer terms" do
+    document = "<html><body>Nani wove her fierce love into every single thread</body></html>"
+
+    details = %{
+      role: :inner,
+      candidates_tried: 4,
+      variants_scored: 6,
+      untreated: %Attempts{
+        kind: :untreated,
+        scanned: 4,
+        passed: 0,
+        rejected: 4,
+        rejection_reasons: %{
+          {:image_binary_failed, "VipsJpeg: out of order read over #{document}"} => 1,
+          {:image_binary_failed, :vips_closed} => 1,
+          :local_contrast_percentile => 2
+        }
+      },
+      treated: %Attempts{
+        kind: :treated,
+        scanned: 2,
+        passed: 0,
+        rejected: 2,
+        rejection_reasons: %{:local_contrast_fraction => 2}
+      },
+      mask_render_errors: [
+        {"candidate-2", {:renderer_exception, ArgumentError, "raised over #{document}"}}
+      ]
+    }
+
+    entry = NaniEvaluationLive.error_entry({:composition_quality_failed, details})
+
+    assert entry.message =~ "0/4 passed"
+    assert entry.message =~ "image_binary_failed ×1"
+    assert entry.message =~ "image_binary_failed:vips_closed ×1"
+    assert entry.message =~ "local_contrast_percentile ×2"
+    assert entry.message =~ "0/2 passed"
+    assert entry.message =~ "local_contrast_fraction ×2"
+    assert entry.evidence == "renderer_exception:ArgumentError ×1"
+    refute entry.message =~ "VipsJpeg"
+    refute entry.message =~ "<html"
+    refute entry.evidence =~ "<html"
+  end
+
+  test "failures with no renderer diagnostics carry no evidence line" do
+    entry = NaniEvaluationLive.error_entry({:composition_overflow, %{minimum_font: 18}})
+
+    assert entry.message =~ "18px minimum"
+    assert entry.evidence == nil
   end
 
   test "a legacy entry with no attempt evidence renders without crashing" do

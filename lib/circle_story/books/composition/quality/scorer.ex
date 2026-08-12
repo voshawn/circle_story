@@ -38,6 +38,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
           ink_luminance,
           treatment,
           policy.edge_threshold,
+          0,
           empty_samples()
         )
 
@@ -109,10 +110,14 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
          _ink_luminance,
          _treatment,
          _edge_threshold,
+         _index,
          state
        ),
        do: state
 
+  # The pixel index is threaded as a plain argument: every pixel of the rect
+  # walks this clause, and most fall below the core threshold, so it must not
+  # cost a copy of the sample accumulator.
   defp scan(
          <<mask, mask_rest::binary>>,
          <<red, green, blue, art_rest::binary>> = art_binary,
@@ -124,9 +129,9 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
          ink_luminance,
          treatment,
          edge_threshold,
+         index,
          state
        ) do
-    index = state_pixel_index(state)
     x = rem(index, width)
     y = div(index, width)
 
@@ -151,8 +156,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
         state
       end
 
-    state = Map.put(state, :pixel_index, index + 1)
-
     scan(
       mask_rest,
       art_rest,
@@ -164,11 +167,10 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       ink_luminance,
       treatment,
       edge_threshold,
+      index + 1,
       state
     )
   end
-
-  defp state_pixel_index(state), do: Map.get(state, :pixel_index, 0)
 
   defp edge_pixel?(_remaining_art, x, y, width, height, _threshold)
        when x == 0 or y == 0 or x == width - 1 or y == height - 1,

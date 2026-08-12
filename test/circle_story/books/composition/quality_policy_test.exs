@@ -292,6 +292,58 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert :glyph_effect_inset in pressed.hard_rejections
   end
 
+  # The scan threads its pixel index outside the sample accumulator, so the art
+  # a glyph pixel is judged against must still be the art under its own x/y.
+  test "glyph geometry and contrast follow the mask's actual position in the rect" do
+    art =
+      Image.new!(200, 100, color: :white)
+      |> Image.compose!(Image.new!(100, 100, color: :black), x: 100, y: 0)
+
+    mask =
+      Image.new!(200, 100, color: :black)
+      |> Image.compose!(Image.new!(60, 20, color: :white), x: 120, y: 40)
+
+    candidate = %Candidate{
+      id: "positioned",
+      index: 0,
+      rect: %{x: 0, y: 0, w: 200, h: 100},
+      align: :left,
+      valign: :middle,
+      min_font: 18,
+      max_font: 24,
+      inset: 10,
+      origin: :seed,
+      measure: %{
+        font_size: 20.0,
+        line_count: 1,
+        lines: [%{x: 120, y: 40, w: 60, h: 20}],
+        overflow: false,
+        clipped: false
+      }
+    }
+
+    policy =
+      Policy.new(:cover,
+        dimensions: {200, 100},
+        outer_inset: 0,
+        internal_inset: 10,
+        min_tile_samples: 12
+      )
+
+    white = Scorer.score(art, candidate, mask, policy, :white)
+
+    assert white.glyph_bounds == %{x: 120, y: 40, w: 60, h: 20}
+    assert white.metrics.glyph_samples == 60 * 20
+    assert white.hard_rejections == []
+
+    # The same glyph pixels sit entirely on the black half, so black ink there
+    # must fail: proof the scan read that half of the art, not the white half.
+    black = Scorer.score(art, candidate, mask, policy, :black)
+
+    assert black.glyph_bounds == white.glyph_bounds
+    assert :local_contrast_percentile in black.hard_rejections
+  end
+
   test "hard gates take precedence over arbitrarily favorable soft weights" do
     policy = test_policy(soft_weights: %{readability: 10_000.0})
     safe = evaluated_candidate("safe", 0, %{x: 520, y: 40, w: 160, h: 160}, 24, [])

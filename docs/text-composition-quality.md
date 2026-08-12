@@ -101,9 +101,18 @@ characters. Attempt `rejection_reasons` keys pass through the same reduction, so
 sidecar size and privacy do not depend on what a third-party library chose to
 put in an error term. That reduction is many-to-one — two libvips faults with
 different payloads share one class — so colliding counts are summed, and the
-persisted frequencies still total the `rejected` count they explain. When every finalist mask fails, the composition returns
+persisted frequencies still total the `rejected` count they explain. Live
+`Attempts` structs still hold the raw reasons they collected, so the development
+UI reduces them through the same classing before display.
+
+When every finalist mask fails, the composition returns
 `{:composition_mask_render_failed, errors}`, reported to the operator as a local
-Chrome fault rather than as page content to rewrite.
+Chrome fault rather than as page content to rewrite. That operator message is
+fixed copy: "Text readability verification could not run because the local
+renderer failed. No composed page was published. Retry composition; if the
+problem continues, inspect the local Chrome renderer." The bounded fault classes
+behind it are surfaced separately as structured evidence
+(`NaniEvaluationLive.error_evidence/1`) rather than spliced into that sentence.
 
 A browser that returns no usable measurement at all is reported as
 `{:composition_measurement_failed, details}` with `reason:
@@ -142,6 +151,9 @@ pays for the stronger ones. Worst case is
 `2 x finalists x (1 + length(backing_opacities))` scans, and the actual number is
 reported as `scored_count` on the optimizer result — the sum of the untreated
 and treated attempt counts, including the weaker opacities rejected on the way.
+Within one scan, only pixels at or above the core mask threshold touch the
+sample accumulator; the pixel index is threaded as a plain argument so the
+majority of pixels that contribute nothing cost no map update.
 Busy artwork that needs the
 strongest backing is therefore the case to calibrate against, not the no-backing
 measurement above.
