@@ -168,6 +168,82 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     assert entry.evidence == nil
   end
 
+  test "overflow evidence reports the fit geometry the page overran by" do
+    page_text = "Nani wove her fierce love into every single thread"
+
+    entry =
+      NaniEvaluationLive.error_entry(
+        {:composition_overflow,
+         %{
+           minimum_font: 18,
+           closest_fit: %{
+             candidate_id: "candidate-7",
+             font_size: 18.0,
+             line_count: 9,
+             scroll_width: 612,
+             scroll_height: 480,
+             available_width: 600,
+             available_height: 360,
+             overflow_width: 12,
+             overflow_height: 120
+           }
+         }}
+      )
+
+    assert entry.message =~ "18px minimum"
+    assert entry.evidence =~ "candidate-7"
+    assert entry.evidence =~ "18.00px"
+    assert entry.evidence =~ "12×120px"
+    assert entry.evidence =~ "612×480px"
+    assert entry.evidence =~ "600×360px"
+    refute entry.evidence =~ page_text
+  end
+
+  test "a raw browser measurement fault is reported as a bounded class, not a raw term" do
+    page_text = "Nani wove her fierce love into every single thread"
+    document = "<html><body>#{page_text}</body></html>"
+
+    reason =
+      {:renderer_exit,
+       {:timeout, {GenServer, :call, [self(), {:capture_screenshot, {:html, document}}, 5_000]}}}
+
+    entry = NaniEvaluationLive.error_entry({:composition_measurement_failed, reason})
+
+    assert entry.message =~ "local browser returned no usable text measurement"
+    assert entry.evidence == "renderer_exit:timeout:GenServer:call"
+    refute entry.message =~ page_text
+    refute entry.evidence =~ page_text
+    refute entry.evidence =~ "<html"
+  end
+
+  test "an unusable-measurement failure surfaces its bounded rejection classes" do
+    entry =
+      NaniEvaluationLive.error_entry(
+        {:composition_measurement_failed,
+         %{
+           role: :inner,
+           candidates_tried: 3,
+           reason: :no_usable_measurement,
+           rejection_reasons: %{unusable_measurement: 3}
+         }}
+      )
+
+    assert entry.evidence == "unusable_measurement ×3"
+  end
+
+  test "an unrecognized failure reason is classed rather than inspected verbatim" do
+    page_text = "Nani wove her fierce love into every single thread"
+
+    entry =
+      NaniEvaluationLive.error_entry(
+        {:image_binary_failed, "VipsJpeg: out of order read over #{page_text}"}
+      )
+
+    assert entry.message == "Unexpected failure: image_binary_failed."
+    refute entry.message =~ page_text
+    refute entry.message =~ "VipsJpeg"
+  end
+
   test "a legacy entry with no attempt evidence renders without crashing" do
     html =
       render_component(&NaniEvaluationLive.composition_quality/1, %{

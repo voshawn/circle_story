@@ -9,7 +9,6 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
 
   alias CircleStory.Books.Composition.Luminance
   alias CircleStory.Books.Composition.Quality.{ImageRead, Policy}
-  alias Vix.Vips.Image, as: VipsImage
   alias Vix.Vips.Operation
 
   @enforce_keys [:cell_size, :grid_w, :grid_h, :image_w, :image_h, :cells]
@@ -42,9 +41,9 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
         bands: Image.bands(sampled)
       }
 
-      case VipsImage.write_to_binary(sampled) do
+      case ImageRead.write_to_binary(sampled) do
         {:ok, binary} -> {:ok, from_binary(binary, shape, policy)}
-        {:error, reason} -> {:error, {:image_binary_failed, reason}}
+        {:error, reason} -> {:error, reason}
       end
     end)
   end

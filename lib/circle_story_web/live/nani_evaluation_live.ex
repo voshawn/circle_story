@@ -894,7 +894,11 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   def format_error({:exception, message}), do: message
   def format_error(reason) when is_binary(reason), do: reason
-  def format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
+
+  # An unrecognized reason is still a third-party term: a libvips message or a
+  # renderer exit can quote the page document it failed over, so the catch-all
+  # names the bounded fault class instead of inspecting the raw payload.
+  def format_error(reason), do: "Unexpected failure: #{Diagnostics.reason_class(reason)}."
 
   @doc """
   Bounded renderer diagnostics for a failure, kept out of the operator message.
@@ -908,6 +912,17 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   def error_evidence({:composition_quality_failed, details}),
     do: details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes()
+
+  def error_evidence({:composition_overflow, details}),
+    do: details |> Map.get(:closest_fit) |> format_fit_evidence()
+
+  def error_evidence(
+        {:composition_measurement_failed, %{reason: :no_usable_measurement} = details}
+      ),
+      do: details |> Map.get(:rejection_reasons, %{}) |> format_reason_classes()
+
+  def error_evidence({:composition_measurement_failed, reason}),
+    do: Diagnostics.reason_class(reason)
 
   def error_evidence(_reason), do: nil
 
@@ -926,6 +941,26 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   defp format_mask_render_classes(_errors), do: nil
+
+  defp format_reason_classes(reasons) when is_map(reasons) and reasons != %{} do
+    reasons
+    |> Diagnostics.class_frequencies()
+    |> Enum.sort_by(fn {class, count} -> {-count, class} end)
+    |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+  end
+
+  defp format_reason_classes(_reasons), do: nil
+
+  # Only the browser's own numbers: the box the candidate had, the box its text
+  # wanted, and the derived deltas. No story text is ever surfaced here.
+  defp format_fit_evidence(%{overflow_width: width, overflow_height: height} = fit) do
+    "closest fit #{fit.candidate_id} at #{format_quality_metric(fit.font_size)}px " <>
+      "overran by #{width}×#{height}px " <>
+      "(text #{fit.scroll_width}×#{fit.scroll_height}px in " <>
+      "#{fit.available_width}×#{fit.available_height}px)"
+  end
+
+  defp format_fit_evidence(_fit), do: nil
 
   defp error_for(errors, key), do: Map.get(errors, key)
   defp active_for?(nil, _key), do: false

@@ -35,17 +35,22 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     @impl true
     def measure([unusable | rest], _content, _role) do
       overflowing =
-        Map.new(
-          rest,
-          &{&1.id,
+        rest
+        |> Enum.with_index()
+        |> Map.new(fn {candidate, index} ->
+          {candidate.id,
            %{
              font_size: 24.0,
              line_count: 3,
              lines: [%{x: 0, y: 0, w: 10, h: 10}],
              overflow: true,
-             clipped: false
+             clipped: false,
+             scroll_width: 200,
+             scroll_height: 300 + index * 10,
+             available_width: 180,
+             available_height: 180
            }}
-        )
+        end)
 
       {:ok,
        Map.put(overflowing, unusable.id, %{
@@ -55,6 +60,32 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
          overflow: false,
          clipped: false
        })}
+    end
+
+    @impl true
+    def mask(_candidate, _content, _role), do: {:error, :not_used}
+  end
+
+  defmodule GeometrylessOverflowRenderer do
+    @moduledoc false
+    @behaviour CircleStory.Books.Composition.Quality.Renderer
+
+    # A renderer that overflows without reporting any fit geometry, which is
+    # what a legacy or non-Chrome measurement source looks like.
+    @impl true
+    def measure(candidates, _content, _role) do
+      {:ok,
+       Map.new(
+         candidates,
+         &{&1.id,
+          %{
+            font_size: 24.0,
+            line_count: 3,
+            lines: [%{x: 0, y: 0, w: 10, h: 10}],
+            overflow: true,
+            clipped: false
+          }}
+       )}
     end
 
     @impl true
@@ -758,6 +789,38 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert details.minimum_font == 18
     assert details.rejection_reasons[:unusable_measurement] == 1
     assert details.rejection_reasons[:text_overflow] == length(generated.candidates) - 1
+  end
+
+  test "overflow details report how far the closest candidate overran, as numbers only" do
+    assert {:ok, generated} =
+             Candidates.generate(measurement_context(OverflowingMeasurementRenderer))
+
+    assert {:error, {:composition_overflow, details}} = Candidates.measure(generated)
+
+    # The unmeasurable candidate carries no geometry at all, so the closest fit
+    # is the least-overflowing candidate the browser did measure.
+    assert details.closest_fit == %{
+             candidate_id: Enum.at(generated.candidates, 1).id,
+             font_size: 24.0,
+             line_count: 3,
+             scroll_width: 200,
+             scroll_height: 300,
+             available_width: 180,
+             available_height: 180,
+             overflow_width: 20,
+             overflow_height: 120
+           }
+
+    assert Enum.all?(Map.values(details.closest_fit), &(is_number(&1) or is_binary(&1)))
+  end
+
+  test "overflow details omit fit geometry when the browser reported none" do
+    assert {:ok, generated} =
+             Candidates.generate(measurement_context(GeometrylessOverflowRenderer))
+
+    assert {:error, {:composition_overflow, details}} = Candidates.measure(generated)
+    assert details.closest_fit == nil
+    assert details.rejection_reasons[:text_overflow] == length(generated.candidates)
   end
 
   test "provenance keeps untreated and treated attempt evidence separable and JSON-safe" do

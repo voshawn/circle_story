@@ -10,14 +10,14 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     valignments = resolve_values(context.policy.valignments, context.placement.vertical_align)
 
     candidates =
-      for {{origin, rect}, rect_index} <- Enum.with_index(rects),
+      for {origin, rect} <- rects,
           align <- alignments,
           valign <- valignments,
           max_font <- context.policy.font_caps do
-        {origin, rect, rect_index, align, valign, max_font}
+        {origin, rect, align, valign, max_font}
       end
       |> Enum.with_index()
-      |> Enum.map(fn {{origin, rect, _rect_index, align, valign, max_font}, index} ->
+      |> Enum.map(fn {{origin, rect, align, valign, max_font}, index} ->
         %Candidate{
           id: "candidate-#{index}",
           index: index,
@@ -81,9 +81,59 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
        minimum_font: context.policy.min_font,
        candidates_tried: length(measured),
        reason: :no_candidate_fits_without_clipping,
-       rejection_reasons: rejection_reasons(measured)
+       rejection_reasons: rejection_reasons(measured),
+       closest_fit: closest_fit(measured)
      }}
   end
+
+  # Overflow evidence carries only the browser's own numbers — the box a
+  # candidate had, the box its text wanted, and the derived deltas — so an
+  # operator can see how far the page overran. No story text is ever included,
+  # and the candidate reported is the one that came closest to fitting.
+  defp closest_fit(measured) do
+    case Enum.filter(measured, &(geometry(&1.measure) != nil)) do
+      [] -> nil
+      candidates -> candidates |> Enum.min_by(&{overflow_extent(&1), &1.index}) |> fit_evidence()
+    end
+  end
+
+  defp geometry(%{
+         scroll_width: scroll_width,
+         scroll_height: scroll_height,
+         available_width: available_width,
+         available_height: available_height
+       })
+       when is_number(scroll_width) and is_number(scroll_height) and
+              is_number(available_width) and is_number(available_height) do
+    %{
+      scroll_width: round(scroll_width),
+      scroll_height: round(scroll_height),
+      available_width: round(available_width),
+      available_height: round(available_height),
+      overflow_width: max(round(scroll_width - available_width), 0),
+      overflow_height: max(round(scroll_height - available_height), 0)
+    }
+  end
+
+  defp geometry(_measure), do: nil
+
+  defp overflow_extent(candidate) do
+    %{overflow_width: width, overflow_height: height} = geometry(candidate.measure)
+    width + height
+  end
+
+  defp fit_evidence(candidate) do
+    candidate.measure
+    |> geometry()
+    |> Map.merge(%{
+      candidate_id: candidate.id,
+      font_size: number_or_nil(candidate.measure.font_size),
+      line_count: number_or_nil(candidate.measure.line_count)
+    })
+  end
+
+  defp number_or_nil(value) when is_number(value), do: value
+  defp number_or_nil(_value), do: nil
 
   defp rejection_reasons(measured) do
     measured |> Enum.flat_map(& &1.hard_rejections) |> Enum.frequencies()

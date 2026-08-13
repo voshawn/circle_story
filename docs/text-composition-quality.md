@@ -68,8 +68,13 @@ scored while resolved pairs stop costing scans. Selection then ranks only the
 passing candidates that share the weakest passing treatment, so a stronger
 backing never outranks a weaker one that already passed. If content still
 cannot fit at the role minimum, the caller receives
-`{:composition_overflow, details}`. The existing print-ready artifact is not
-silently clipped or overwritten by that failed composition.
+`{:composition_overflow, details}`. Those details carry `closest_fit`: the id,
+fitted font, line count, available and scroll dimensions, and the derived
+`overflow_width`/`overflow_height` of the candidate that came nearest to
+fitting, so an operator can see by how much the page overran. Every field is a
+number or a candidate id — no story text ever travels in a failure. `nil` there
+means the measurement source reported no fit geometry. The existing print-ready
+artifact is not silently clipped or overwritten by that failed composition.
 
 ## Geometry status
 
@@ -115,6 +120,13 @@ different payloads share one class — so colliding counts are summed, and the
 persisted frequencies still total the `rejected` count they explain. Live
 `Attempts` structs still hold the raw reasons they collected, so the development
 UI reduces them through the same classing before display.
+
+The same rule holds for reasons that leave a step directly rather than through
+attempt evidence. `Quality.ImageRead.write_to_binary/1` is the single libvips
+byte-read boundary and already classes the fault term it returns, and the
+development UI's catch-all `format_error/1` names a bounded class instead of
+inspecting an unrecognized reason, so no raw third-party payload can reach an
+operator by escaping a step early.
 
 When every finalist mask fails, the composition returns
 `{:composition_mask_render_failed, errors}`, reported to the operator as a local
@@ -167,7 +179,10 @@ spent twice on one rendered layout.
 
 Within one scan, only pixels at or above the core mask threshold touch the
 sample accumulator; the pixel index is threaded as a plain argument so the
-majority of pixels that contribute nothing cost no map update. The sRGB gamma
+majority of pixels that contribute nothing cost no map update. A contributing
+pixel accumulates exactly one value — its contrast — into the overall, line, and
+overlapping-tile groups, so summarizing a group is a single sort and count with
+no second per-pixel arithmetic pass. The sRGB gamma
 expansion behind every relative-luminance read is a compile-time 256-entry
 table rather than a `:math.pow/2` call per channel per pixel.
 

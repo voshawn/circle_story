@@ -60,12 +60,12 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
         |> Operation.extract_band!(0)
 
       with true <- Image.width(mask_band) == rect.w and Image.height(mask_band) == rect.h,
-           {:ok, art_binary} <- VipsImage.write_to_binary(art_crop),
-           {:ok, mask_binary} <- VipsImage.write_to_binary(mask_band) do
+           {:ok, art_binary} <- ImageRead.write_to_binary(art_crop),
+           {:ok, mask_binary} <- ImageRead.write_to_binary(mask_band) do
         {:ok, art_binary, mask_binary}
       else
         false -> {:error, :mask_geometry_mismatch}
-        {:error, reason} -> {:error, {:image_binary_failed, reason}}
+        {:error, reason} -> {:error, reason}
       end
     end)
   end
@@ -138,19 +138,17 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     state =
       if mask >= @core_threshold do
         background = effective_background([red, green, blue], treatment)
-        background_luminance = Luminance.relative(background)
-        contrast = Luminance.contrast_ratio(ink_luminance, background_luminance)
+        contrast = Luminance.contrast_ratio(ink_luminance, Luminance.relative(background))
         edge? = edge_pixel?(art_binary, x, y, width, height, edge_threshold)
         line = line_index(lines, x, y)
         tile_keys = tile_keys(x, y, tile_size, tile_stride)
-        sample = {contrast, background_luminance, edge?}
 
         state
         |> Map.update!(:count, &(&1 + 1))
-        |> Map.update!(:all, &[sample | &1])
+        |> Map.update!(:all, &[contrast | &1])
         |> Map.update!(:edge_count, &(&1 + if(edge?, do: 1, else: 0)))
-        |> put_group(:lines, line, sample)
-        |> put_groups(:tiles, tile_keys, sample)
+        |> put_group(:lines, line, contrast)
+        |> put_groups(:tiles, tile_keys, contrast)
         |> update_bounds(x, y)
       else
         state
@@ -225,12 +223,16 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     |> Enum.take_while(&(&1 >= earliest))
   end
 
-  defp put_group(state, key, group, sample) do
-    Map.update!(state, key, &Map.update(&1, group, [sample], fn values -> [sample | values] end))
+  defp put_group(state, key, group, contrast) do
+    Map.update!(
+      state,
+      key,
+      &Map.update(&1, group, [contrast], fn values -> [contrast | values] end)
+    )
   end
 
-  defp put_groups(state, key, groups, sample) do
-    Enum.reduce(groups, state, &put_group(&2, key, &1, sample))
+  defp put_groups(state, key, groups, contrast) do
+    Enum.reduce(groups, state, &put_group(&2, key, &1, contrast))
   end
 
   defp update_bounds(state, x, y) do
@@ -300,7 +302,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
         overall_low_contrast_fraction: all_summary.low_fraction,
         worst_tile_p10: worst_tile.p10,
         worst_tile_low_contrast_fraction: worst_tile_fraction.low_fraction,
-        worst_tile_variance: worst_tile.variance,
         worst_line_p05: worst_line.p05,
         worst_line_low_contrast_fraction: worst_line_fraction.low_fraction,
         edge_density: samples.edge_count / samples.count,
@@ -318,17 +319,14 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     }
   end
 
-  defp summarize(samples, policy) do
-    contrasts = samples |> Enum.map(&elem(&1, 0)) |> Enum.sort()
-    luminances = Enum.map(samples, &elem(&1, 1))
-    count = length(samples)
-    mean = Enum.sum(luminances) / count
+  defp summarize(contrasts, policy) do
+    sorted = Enum.sort(contrasts)
+    count = length(sorted)
 
     %{
-      p05: percentile(contrasts, count, 0.05),
-      p10: percentile(contrasts, count, 0.10),
-      low_fraction: Enum.count(contrasts, &(&1 < policy.hard_contrast)) / count,
-      variance: Enum.sum(Enum.map(luminances, &:math.pow(&1 - mean, 2))) / count,
+      p05: percentile(sorted, count, 0.05),
+      p10: percentile(sorted, count, 0.10),
+      low_fraction: Enum.count(sorted, &(&1 < policy.hard_contrast)) / count,
       count: count
     }
   end
