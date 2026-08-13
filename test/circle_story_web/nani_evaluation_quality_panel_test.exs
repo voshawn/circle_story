@@ -191,12 +191,53 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
       )
 
     assert entry.message =~ "18px minimum"
+    assert entry.evidence_label == "Fit details"
     assert entry.evidence =~ "candidate-7"
     assert entry.evidence =~ "18.00px"
     assert entry.evidence =~ "12×120px"
     assert entry.evidence =~ "612×480px"
     assert entry.evidence =~ "600×360px"
     refute entry.evidence =~ page_text
+  end
+
+  test "content overflow is never labelled as a local renderer fault" do
+    overflow =
+      NaniEvaluationLive.error_entry(
+        {:composition_overflow,
+         %{
+           minimum_font: 18,
+           closest_fit: %{
+             candidate_id: "candidate-7",
+             font_size: 18.0,
+             line_count: 9,
+             scroll_width: 612,
+             scroll_height: 480,
+             available_width: 600,
+             available_height: 360,
+             overflow_width: 12,
+             overflow_height: 120
+           }
+         }}
+      )
+
+    mask_render =
+      NaniEvaluationLive.error_entry(
+        {:composition_mask_render_failed,
+         [{"candidate-1", {:renderer_exception, ArgumentError, "raised over the page"}}]}
+      )
+
+    measurement =
+      NaniEvaluationLive.error_entry(
+        {:composition_measurement_failed, {:renderer_exit, :timeout}}
+      )
+
+    without_evidence =
+      NaniEvaluationLive.error_entry({:composition_overflow, %{minimum_font: 18}})
+
+    assert overflow.evidence_label == "Fit details"
+    assert mask_render.evidence_label == "Renderer diagnostics"
+    assert measurement.evidence_label == "Renderer diagnostics"
+    assert without_evidence.evidence_label == nil
   end
 
   test "a raw browser measurement fault is reported as a bounded class, not a raw term" do

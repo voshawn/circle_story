@@ -207,6 +207,31 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert light_for_black.unsafe_fraction == 0.0
   end
 
+  test "safety map cells stay aligned to the art when the grid does not divide evenly" do
+    art =
+      Image.new!(401, 199, color: :black)
+      |> Image.compose!(Image.new!(200, 199, color: :white), x: 201, y: 0)
+
+    policy = Policy.new(:cover, dimensions: {401, 199}, outer_inset: 0, map_cell_size: 20)
+    map = safety_map(art, policy)
+
+    assert tuple_size(map.cells) == map.grid_w * map.grid_h
+
+    dark_for_black = SafetyMap.summarize(map, %{x: 0, y: 0, w: 180, h: 199}, :black, policy)
+    light_for_black = SafetyMap.summarize(map, %{x: 221, y: 0, w: 180, h: 199}, :black, policy)
+
+    assert dark_for_black.unsafe_fraction == 1.0
+    assert light_for_black.unsafe_fraction == 0.0
+  end
+
+  test "an unusable map cell size is a bounded geometry error, not an image fault" do
+    art = Image.new!(400, 200, color: :black)
+    policy = Policy.new(:cover, dimensions: {400, 200}, outer_inset: 0, map_cell_size: 0)
+
+    assert SafetyMap.build(art, policy) ==
+             {:error, {:safety_map_invalid_geometry, :cell_size}}
+  end
+
   test "gradient cells expose a transition rather than a misleading whole-region average" do
     art =
       Image.from_svg!("""

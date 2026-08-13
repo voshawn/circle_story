@@ -375,7 +375,7 @@
             >
               <p>{error.message}</p>
               <p :if={error.evidence} class={["mt-1 text-[0.7rem] font-normal text-rose-700"]}>
-                Renderer diagnostics: {error.evidence}
+                {error.evidence_label}: {error.evidence}
               </p>
             </div>
 
@@ -765,7 +765,7 @@
             >
               <p><strong>Last returned error:</strong> {error.message}</p>
               <p :if={error.evidence} class={["mt-1 text-[0.7rem] font-normal text-rose-700"]}>
-                Renderer diagnostics: {error.evidence}
+                {error.evidence_label}: {error.evidence}
               </p>
             </div>
 

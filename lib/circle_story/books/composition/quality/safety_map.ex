@@ -19,33 +19,56 @@ defmodule CircleStory.Books.Composition.Quality.SafetyMap do
   @doc "Build black/white readability information from fitted art."
   @spec build(Vix.Vips.Image.t(), Policy.t()) :: {:ok, t()} | {:error, term()}
   def build(image, %Policy{} = policy) do
-    ImageRead.guard(fn ->
-      image_w = Image.width(image)
-      image_h = Image.height(image)
-      grid_w = ceil_div(image_w, policy.map_cell_size)
-      grid_h = ceil_div(image_h, policy.map_cell_size)
+    with :ok <- validate_cell_size(policy.map_cell_size) do
+      ImageRead.guard(fn ->
+        image_w = Image.width(image)
+        image_h = Image.height(image)
 
-      # The cell reads below index one byte per band, so non-uchar source art is
-      # cast rather than trusted to already be 8-bit.
-      sampled =
-        image
-        |> Image.to_colorspace!(:srgb)
-        |> Image.thumbnail!("#{grid_w}x#{grid_h}", resize: :force)
-        |> Operation.cast!(:VIPS_FORMAT_UCHAR)
+        # The cell reads below index one byte per band, so non-uchar source art is
+        # cast rather than trusted to already be 8-bit.
+        sampled =
+          image
+          |> Image.to_colorspace!(:srgb)
+          |> Image.thumbnail!(
+            "#{ceil_div(image_w, policy.map_cell_size)}x#{ceil_div(image_h, policy.map_cell_size)}",
+            resize: :force
+          )
+          |> Operation.cast!(:VIPS_FORMAT_UCHAR)
 
-      shape = %{
-        grid_w: grid_w,
-        grid_h: grid_h,
-        image_w: image_w,
-        image_h: image_h,
-        bands: Image.bands(sampled)
-      }
+        # The grid describes the bytes that were actually produced, never the
+        # size that was requested, so a cell can never index another cell's pixel.
+        shape = %{
+          grid_w: Image.width(sampled),
+          grid_h: Image.height(sampled),
+          image_w: image_w,
+          image_h: image_h,
+          bands: Image.bands(sampled)
+        }
 
-      case ImageRead.write_to_binary(sampled) do
-        {:ok, binary} -> {:ok, from_binary(binary, shape, policy)}
-        {:error, reason} -> {:error, reason}
-      end
-    end)
+        with :ok <- validate_grid(shape),
+             {:ok, binary} <- ImageRead.write_to_binary(sampled),
+             :ok <- validate_bytes(binary, shape) do
+          {:ok, from_binary(binary, shape, policy)}
+        end
+      end)
+    end
+  end
+
+  defp validate_cell_size(cell_size) when is_integer(cell_size) and cell_size > 0, do: :ok
+  defp validate_cell_size(_cell_size), do: {:error, {:safety_map_invalid_geometry, :cell_size}}
+
+  defp validate_grid(%{grid_w: grid_w, grid_h: grid_h, bands: bands})
+       when grid_w > 0 and grid_h > 0 and bands > 0,
+       do: :ok
+
+  defp validate_grid(_shape), do: {:error, {:safety_map_invalid_geometry, :grid_dimensions}}
+
+  defp validate_bytes(binary, %{grid_w: grid_w, grid_h: grid_h, bands: bands}) do
+    if byte_size(binary) >= grid_w * grid_h * bands do
+      :ok
+    else
+      {:error, {:safety_map_invalid_geometry, :byte_geometry}}
+    end
   end
 
   defp from_binary(binary, shape, policy) do

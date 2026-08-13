@@ -901,10 +901,12 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   def format_error(reason), do: "Unexpected failure: #{Diagnostics.reason_class(reason)}."
 
   @doc """
-  Bounded renderer diagnostics for a failure, kept out of the operator message.
+  Bounded evidence for a failure, kept out of the operator message.
 
   Mask faults arrive as opaque renderer terms that can embed the page document,
-  so only the sanitized class names and their counts are ever surfaced.
+  so only the sanitized class names and their counts are ever surfaced. Overflow
+  instead carries the browser's own fit geometry, which `evidence_label/1`
+  labels as a fit detail rather than a renderer fault.
   """
   @spec error_evidence(term()) :: String.t() | nil
   def error_evidence({:composition_mask_render_failed, errors}),
@@ -927,10 +929,33 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   def error_evidence(_reason), do: nil
 
   @doc false
-  @spec error_entry(term()) :: %{message: String.t(), evidence: String.t() | nil}
+  @spec error_entry(term()) :: %{
+          message: String.t(),
+          evidence: String.t() | nil,
+          evidence_label: String.t() | nil
+        }
   def error_entry(reason) do
-    %{message: format_error(reason), evidence: error_evidence(reason)}
+    case error_evidence(reason) do
+      nil ->
+        %{message: format_error(reason), evidence: nil, evidence_label: nil}
+
+      evidence ->
+        %{
+          message: format_error(reason),
+          evidence: evidence,
+          evidence_label: evidence_label(reason)
+        }
+    end
   end
+
+  # Overflow evidence is the browser's own fit geometry for content that did not
+  # fit; the renderer classes are local faults. Anything else stays neutral so a
+  # new reason can never be labelled as a cause it did not have.
+  defp evidence_label({:composition_overflow, _details}), do: "Fit details"
+  defp evidence_label({:composition_mask_render_failed, _errors}), do: "Renderer diagnostics"
+  defp evidence_label({:composition_quality_failed, _details}), do: "Renderer diagnostics"
+  defp evidence_label({:composition_measurement_failed, _details}), do: "Renderer diagnostics"
+  defp evidence_label(_reason), do: "Details"
 
   defp format_mask_render_classes([_ | _] = errors) do
     errors
