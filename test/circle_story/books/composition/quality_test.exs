@@ -14,8 +14,25 @@ defmodule CircleStory.Books.Composition.QualityTest do
 
   @story "With fierce love she built a successful business, became a professor, and wrote her own story."
 
+  # Chrome takes a long nap between launch and its first DevTools reply on cold
+  # CI machines, which blows through ChromicPDF's 5s pool defaults and fails
+  # every renderer test with a checkout/init timeout. `warm_up/1` is the
+  # library's documented mitigation; the raised timeouts cover the remaining
+  # slack so these tests measure composition, not Chrome start-up latency.
+  @pool_timeout 30_000
+
   setup_all do
-    start_supervised!({ChromicPDF, []})
+    {:ok, _stderr} = ChromicPDF.warm_up()
+
+    start_supervised!(
+      {ChromicPDF,
+       session_pool: [
+         timeout: @pool_timeout,
+         init_timeout: @pool_timeout,
+         checkout_timeout: @pool_timeout
+       ]}
+    )
+
     :ok
   end
 
