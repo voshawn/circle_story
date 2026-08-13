@@ -21,16 +21,26 @@ defmodule CircleStory.Books.Composition.QualityTest do
   # slack so these tests measure composition, not Chrome start-up latency.
   @pool_timeout 30_000
 
+  # Ubuntu 23.10+ (so `ubuntu-latest` on GitHub Actions) ships
+  # `kernel.apparmor_restrict_unprivileged_userns=1`, which blocks Chrome's
+  # namespace sandbox: Chrome exits immediately and every renderer call fails
+  # with ConnectionLostError. These tests only render our own local HTML, so
+  # they launch Chrome sandbox-less on every platform to stay deterministic.
+  @chrome_opts [no_sandbox: true]
+
   setup_all do
-    {:ok, _stderr} = ChromicPDF.warm_up()
+    {:ok, _stderr} = ChromicPDF.warm_up(@chrome_opts)
 
     start_supervised!(
       {ChromicPDF,
-       session_pool: [
-         timeout: @pool_timeout,
-         init_timeout: @pool_timeout,
-         checkout_timeout: @pool_timeout
-       ]}
+       @chrome_opts ++
+         [
+           session_pool: [
+             timeout: @pool_timeout,
+             init_timeout: @pool_timeout,
+             checkout_timeout: @pool_timeout
+           ]
+         ]}
     )
 
     :ok
