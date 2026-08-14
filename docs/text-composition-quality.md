@@ -137,6 +137,9 @@ the bbox sidecar. Successful composition writes the
 
 - final geometry, anchors, fit, ink, and the compatibility value `treatment:
   "none"`;
+- `glyph_bounds`, plus the compatibility field `effect_bounds`, which is fixed
+  to the same measured glyph rectangle because transparent text has no separate
+  effect layer to bound; it is not displayed anywhere in the evaluation UI;
 - `selection_outcome`, either `threshold_pass` or
   `below_threshold_transparent_fallback`;
 - `readability_thresholds_met` and the selected candidate's bounded

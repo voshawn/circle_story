@@ -11,7 +11,7 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
 
   @spec choose([Candidate.t()], map(), Policy.t()) :: {:ok, Candidate.t()} | {:error, term()}
   def choose(candidates, seed_rect, %Policy{} = policy) do
-    case Enum.filter(candidates, &preferred?/1) do
+    case Enum.filter(candidates, &Candidate.preferred?/1) do
       [] -> choose_fallback(candidates, seed_rect, policy)
       passing -> {:ok, choose_preferred(passing, seed_rect, policy)}
     end
@@ -98,11 +98,8 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
     }
   end
 
-  defp preferred?(candidate),
-    do: candidate.hard_rejections == [] and candidate.readability_rejections == []
-
   defp fallback_eligible?(candidate) do
-    candidate.hard_rejections == [] and candidate.readability_rejections != [] and
+    candidate.hard_rejections == [] and not Candidate.preferred?(candidate) and
       readability_metrics?(candidate.metrics)
   end
 

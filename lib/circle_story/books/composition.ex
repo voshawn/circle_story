@@ -10,11 +10,13 @@ defmodule CircleStory.Books.Composition do
   require Logger
 
   alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance, Quality}
-  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result, Scorer}
   alias CircleStory.Books.Actions.PlaceText
 
   @quality_contract Policy.contract_version()
-  @readability_reasons ~w(line_contrast local_contrast_fraction local_contrast_percentile)
+  # Derived from the gates that produce these reasons, so a new readability gate
+  # cannot be silently dropped from the decoded sidecar.
+  @readability_reasons Enum.map(Scorer.readability_reasons(), &Atom.to_string/1)
 
   alias CircleStory.Books.{
     Book,

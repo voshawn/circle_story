@@ -70,6 +70,19 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     refute html =~ "Mask render failures"
   end
 
+  test "the panel reports glyph geometry only, with no second treatment rectangle" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-5",
+        quality: quality(glyph_bounds: %{x: 188, y: 208, w: 600, h: 220})
+      })
+
+    assert html =~ "Glyphs x=188, y=208, 600×220px"
+    refute html =~ "effect"
+    refute html =~ "backing"
+    refute html =~ "treatment"
+  end
+
   test "renderer faults that dropped a finalist mask are surfaced" do
     html =
       render_component(&NaniEvaluationLive.composition_quality/1, %{
@@ -150,6 +163,30 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     refute entry.message =~ "VipsJpeg"
     refute entry.message =~ "<html"
     refute entry.evidence =~ "<html"
+  end
+
+  test "a quality failure without renderer faults never repeats its scan reasons" do
+    details = %{
+      role: :inner,
+      candidates_tried: 4,
+      variants_scored: 6,
+      reason: :no_geometry_safe_transparent_candidate,
+      transparent: %Attempts{
+        kind: :transparent,
+        scanned: 6,
+        passed: 0,
+        rejected: 6,
+        rejection_reasons: %{:local_contrast_percentile => 4, :glyph_effect_inset => 2}
+      },
+      mask_render_errors: []
+    }
+
+    entry = NaniEvaluationLive.error_entry({:composition_quality_failed, details})
+
+    assert entry.message =~ "local_contrast_percentile ×4"
+    assert entry.message =~ "glyph_effect_inset ×2"
+    assert entry.evidence == nil
+    assert entry.evidence_label == nil
   end
 
   test "failures with no renderer diagnostics carry no evidence line" do

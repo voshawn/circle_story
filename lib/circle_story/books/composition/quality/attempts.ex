@@ -24,7 +24,7 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
   @doc "Summarize every scored transparent black/white variant."
   @spec summarize(kind(), [Candidate.t()]) :: t()
   def summarize(:transparent, variants) do
-    {passing, rejected} = Enum.split_with(variants, &preferred?/1)
+    {passing, rejected} = Enum.split_with(variants, &Candidate.preferred?/1)
 
     %__MODULE__{
       kind: :transparent,
@@ -60,9 +60,6 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
 
   def decode(:transparent, _attempts),
     do: %{kind: :transparent, scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}}
-
-  defp preferred?(candidate),
-    do: candidate.hard_rejections == [] and candidate.readability_rejections == []
 
   defp rejections(candidate),
     do: candidate.hard_rejections ++ candidate.readability_rejections

@@ -8,6 +8,20 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
 
   @core_threshold 128
 
+  # The readability gates this module applies, in the order they are evaluated.
+  # Everything that has to know which reasons are readability (rather than
+  # non-negotiable geometry) reasons derives that from this list.
+  @readability_reasons [:local_contrast_percentile, :local_contrast_fraction, :line_contrast]
+
+  @doc """
+  The readability rejection reasons `score/5` can record.
+
+  Consumers that classify persisted reasons must derive their allowlist from
+  here so a newly added gate cannot be silently dropped downstream.
+  """
+  @spec readability_reasons() :: [atom()]
+  def readability_reasons, do: @readability_reasons
+
   @spec score(
           Vix.Vips.Image.t(),
           Candidate.t(),
@@ -279,13 +293,10 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       )
 
     readability_rejections =
-      []
-      |> reject_if(worst_tile.p10 < policy.hard_contrast, :local_contrast_percentile)
-      |> reject_if(
-        worst_tile_fraction.low_fraction > policy.max_low_contrast_fraction,
-        :local_contrast_fraction
+      readability_rejections(
+        %{tile: worst_tile, tile_fraction: worst_tile_fraction, line: worst_line},
+        policy
       )
-      |> reject_if(worst_line.p05 < policy.hard_contrast, :line_contrast)
 
     metrics =
       candidate.metrics
@@ -327,6 +338,21 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
   defp percentile(sorted, count, fraction) do
     Enum.at(sorted, floor((count - 1) * fraction))
   end
+
+  defp readability_rejections(worst, policy) do
+    Enum.reduce(@readability_reasons, [], fn reason, reasons ->
+      reject_if(reasons, gate_failed?(reason, worst, policy), reason)
+    end)
+  end
+
+  defp gate_failed?(:local_contrast_percentile, worst, policy),
+    do: worst.tile.p10 < policy.hard_contrast
+
+  defp gate_failed?(:local_contrast_fraction, worst, policy),
+    do: worst.tile_fraction.low_fraction > policy.max_low_contrast_fraction
+
+  defp gate_failed?(:line_contrast, worst, policy),
+    do: worst.line.p05 < policy.hard_contrast
 
   defp glyph_within_inset?(bounds, candidate) do
     tolerance = 2

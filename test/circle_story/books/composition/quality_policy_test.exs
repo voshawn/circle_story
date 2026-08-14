@@ -617,6 +617,50 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert selected.readability_rejections == [:local_contrast_fraction]
   end
 
+  test "scan accounting and the selection outcome never contradict each other" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+    policy = test_policy()
+
+    scenarios = [
+      [[]],
+      [[:local_contrast_percentile]],
+      [[:glyph_effect_inset]],
+      [[:glyph_effect_inset], [:line_contrast]],
+      [[:glyph_effect_inset, :local_contrast_fraction]],
+      [[:local_contrast_fraction], [], [:glyph_effect_inset]]
+    ]
+
+    for rejection_sets <- scenarios do
+      variants =
+        rejection_sets
+        |> Enum.with_index()
+        |> Enum.map(fn {rejections, index} ->
+          "v#{index}"
+          |> evaluated_candidate(index, rect, 24, rejections)
+          |> put_readability_metrics(2.5, 0.2, 2.6, 0.1)
+        end)
+
+      attempts = Attempts.summarize(:transparent, variants)
+      assert attempts.scanned == length(variants)
+      assert attempts.passed + attempts.rejected == attempts.scanned
+
+      outcome =
+        case Selection.choose(variants, rect, policy) do
+          {:ok, selected} -> selected.selection_outcome
+          {:error, reason} -> reason
+        end
+
+      if attempts.passed > 0 do
+        assert outcome == :threshold_pass,
+               "#{inspect(rejection_sets)} counted #{attempts.passed} passing scans " <>
+                 "but selected #{inspect(outcome)}"
+      else
+        refute outcome == :threshold_pass,
+               "#{inspect(rejection_sets)} counted no passing scan but selected a threshold pass"
+      end
+    end
+  end
+
   test "finalist evaluation scans exactly black and white transparent ink" do
     rect = %{x: 0, y: 0, w: 60, h: 40}
     art = Image.new!(200, 100, color: [150, 150, 150])
@@ -1115,9 +1159,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
   defp evaluated_candidate(id, index, rect, font_size, rejections) do
     {readability_rejections, hard_rejections} =
-      Enum.split_with(rejections, fn reason ->
-        reason in [:local_contrast_percentile, :local_contrast_fraction, :line_contrast]
-      end)
+      Enum.split_with(rejections, &(&1 in Scorer.readability_reasons()))
 
     %Candidate{
       id: id,

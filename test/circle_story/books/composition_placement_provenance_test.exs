@@ -3,7 +3,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
 
   alias CircleStory.Books.Composition
   alias CircleStory.Books.Composition.ImageOps
-  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Policy, Result}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Policy, Result, Scorer}
 
   @private_page_text "Nani wove her fierce love into every single thread"
 
@@ -132,6 +132,65 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     # The renderer terms behind those two failures both quoted the page document.
     refute encoded =~ @private_page_text
     refute encoded =~ "<html"
+  end
+
+  test "every readability gate the scorer can fail survives the sidecar round-trip", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    reasons = Scorer.readability_reasons()
+    rect = %{x: 140, y: 160, w: 700, h: 320}
+
+    winner =
+      "winner"
+      |> scored_candidate(0, rect, reasons)
+      |> Map.put(:selection_outcome, :below_threshold_transparent_fallback)
+
+    quality =
+      Result.provenance(%Result{
+        candidate: winner,
+        contract_version: Policy.contract_version(),
+        candidate_count: 40,
+        rejected_count: 1,
+        scored_count: 1,
+        transparent: Attempts.summarize(:transparent, [winner])
+      })
+
+    assert :ok = Composition.cache_placement(raw, box, quality)
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    decoded = cached.composition_quality.readability_rejections
+    assert Enum.sort(decoded) == reasons |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+    refute cached.composition_quality.readability_thresholds_met
+  end
+
+  test "a decoded rejection that no readability gate produces is dropped", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    quality = %{
+      contract_version: Policy.contract_version(),
+      candidate_id: "candidate-7",
+      final_rect: %{x: 140, y: 160, w: 700, h: 320},
+      ink: "black",
+      selection_outcome: "below_threshold_transparent_fallback",
+      readability_thresholds_met: false,
+      readability_rejections: ["glyph_effect_inset", "local_contrast_percentile"],
+      metrics: %{}
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, quality)
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    assert cached.composition_quality.readability_rejections == ["local_contrast_percentile"]
   end
 
   test "a superseded deterministic contract is invalidated on read", %{raw: raw} do

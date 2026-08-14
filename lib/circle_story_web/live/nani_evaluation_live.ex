@@ -841,9 +841,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
         )}ms
       </p>
       <p>
-        Glyphs {format_quality_rect(@quality.glyph_bounds)} · effect {format_quality_rect(
-          @quality.effect_bounds
-        )}
+        Glyphs {format_quality_rect(@quality.glyph_bounds)}
       </p>
       <p>
         Worst tile p10 {format_quality_metric(@quality.metrics.worst_tile_p10)}:1 ·
@@ -933,12 +931,10 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   def error_evidence({:composition_mask_render_failed, errors}),
     do: format_mask_render_classes(errors)
 
-  def error_evidence({:composition_quality_failed, details}) do
-    case details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes() do
-      nil -> details |> Map.get(:transparent) |> format_attempt_rejections()
-      evidence -> evidence
-    end
-  end
+  # The scan reasons already travel inside `format_error/1`, so the evidence line
+  # carries only the renderer faults that message cannot state.
+  def error_evidence({:composition_quality_failed, details}),
+    do: details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes()
 
   def error_evidence({:composition_overflow, details}),
     do: details |> Map.get(:closest_fit) |> format_fit_evidence()
@@ -1000,11 +996,6 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   defp format_reason_classes(_reasons), do: nil
-
-  defp format_attempt_rejections(%Attempts{} = attempts),
-    do: format_reason_classes(attempts.rejection_reasons)
-
-  defp format_attempt_rejections(_attempts), do: nil
 
   # Only the browser's own numbers: the box the candidate had, the box its text
   # wanted, and the derived deltas. No story text is ever surfaced here.
