@@ -799,22 +799,38 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   attr :quality, :map, required: true
 
   @doc """
-  Persisted deterministic composition evidence for one composed page.
+  Persisted, content-free deterministic composition evidence for one page.
 
-  Untreated ink attempts and backing attempts are reported separately: a page
-  that shipped with a backing is only auditable if the reviewer can see that
-  plain ink was scanned first and why every one of those scans was refused.
+  Transparent black/white attempts are reported together. A below-threshold
+  fallback is explicit and retains the glyph-mask contrast evidence that ranked
+  it without exposing story text, renderer payloads, paths, or source art.
   """
   def composition_quality(assigns) do
-    assigns = assign(assigns, :attempts, Map.get(assigns.quality, :attempts) || %{})
+    assigns =
+      assigns
+      |> assign(:attempts, Map.get(assigns.quality, :attempts) || %{})
+      |> assign(
+        :fallback?,
+        Map.get(assigns.quality, :selection_outcome) ==
+          "below_threshold_transparent_fallback"
+      )
 
     ~H"""
     <div
       id={@id}
-      class={["mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"]}
+      class={[
+        "mt-2 rounded-xl border p-3",
+        if(@fallback?,
+          do: "border-amber-300 bg-amber-50 text-amber-950",
+          else: "border-emerald-200 bg-emerald-50 text-emerald-950"
+        )
+      ]}
     >
       <p class={["font-semibold"]}>
-        Deterministic composition · {@quality.treatment}
+        Deterministic composition · transparent {format_quality_ink(@quality.ink)} text
+      </p>
+      <p class={["font-semibold", @fallback? && "text-amber-800"]}>
+        {format_quality_outcome(@quality.selection_outcome)}
       </p>
       <p>
         Final {format_quality_rect(@quality.final_rect)} · {@quality.align}/{@quality.valign} · {@quality.adjustment}
@@ -832,21 +848,27 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       <p>
         Worst tile p10 {format_quality_metric(@quality.metrics.worst_tile_p10)}:1 ·
         below 3:1 {format_quality_percent(@quality.metrics.worst_tile_low_contrast_fraction)} ·
+        worst line p05 {format_quality_metric(@quality.metrics.worst_line_p05)}:1 ·
         edge {format_quality_percent(@quality.metrics.edge_density)}
       </p>
-      <p>
-        Untreated ink: {format_quality_attempts(Map.get(@attempts, :untreated))}
+      <p :if={@fallback?}>
+        Selected threshold misses: {format_readability_rejections(
+          Map.get(@quality, :readability_rejections, [])
+        )}
       </p>
       <p>
-        Backing attempts: {format_quality_attempts(Map.get(@attempts, :treated))}
+        Transparent black/white attempts: {format_quality_attempts(Map.get(@attempts, :transparent))}
       </p>
       <p :if={Map.get(@quality, :mask_render_errors, []) != []}>
         Mask render failures: {format_mask_render_errors(@quality.mask_render_errors)}
       </p>
-      <p class={["break-all text-[0.65rem] text-emerald-800/75"]}>
+      <p class={[
+        "break-all text-[0.65rem]",
+        if(@fallback?, do: "text-amber-800/75", else: "text-emerald-800/75")
+      ]}>
         {@quality.contract_version} · {@quality.candidate_id} · {format_quality_count(
           Map.get(@quality, :scored_count)
-        )} scans · {@quality.rejected_count} rejected variants
+        )} scans · {@quality.rejected_count} variants missed preferred gates
       </p>
     </div>
     """
@@ -886,9 +908,8 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   def format_error({:composition_quality_failed, details}) do
-    "No deterministic text treatment passed the hard readability gates " <>
-      "(#{format_quality_attempts(Map.get(details, :untreated))} untreated, " <>
-      "#{format_quality_attempts(Map.get(details, :treated))} with backing). " <>
+    "No geometry-safe transparent black/white text candidate could be published " <>
+      "(#{format_quality_attempts(Map.get(details, :transparent))}). " <>
       "Existing output was retained."
   end
 
@@ -912,8 +933,12 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   def error_evidence({:composition_mask_render_failed, errors}),
     do: format_mask_render_classes(errors)
 
-  def error_evidence({:composition_quality_failed, details}),
-    do: details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes()
+  def error_evidence({:composition_quality_failed, details}) do
+    case details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes() do
+      nil -> details |> Map.get(:transparent) |> format_attempt_rejections()
+      evidence -> evidence
+    end
+  end
 
   def error_evidence({:composition_overflow, details}),
     do: details |> Map.get(:closest_fit) |> format_fit_evidence()
@@ -953,7 +978,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   # new reason can never be labelled as a cause it did not have.
   defp evidence_label({:composition_overflow, _details}), do: "Fit details"
   defp evidence_label({:composition_mask_render_failed, _errors}), do: "Renderer diagnostics"
-  defp evidence_label({:composition_quality_failed, _details}), do: "Renderer diagnostics"
+  defp evidence_label({:composition_quality_failed, _details}), do: "Composition diagnostics"
   defp evidence_label({:composition_measurement_failed, _details}), do: "Renderer diagnostics"
   defp evidence_label(_reason), do: "Details"
 
@@ -975,6 +1000,11 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   defp format_reason_classes(_reasons), do: nil
+
+  defp format_attempt_rejections(%Attempts{} = attempts),
+    do: format_reason_classes(attempts.rejection_reasons)
+
+  defp format_attempt_rejections(_attempts), do: nil
 
   # Only the browser's own numbers: the box the candidate had, the box its text
   # wanted, and the derived deltas. No story text is ever surfaced here.
@@ -1026,6 +1056,18 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp format_quality_count(value) when is_integer(value), do: Integer.to_string(value)
   defp format_quality_count(_), do: "—"
 
+  defp format_quality_ink(:white), do: "white"
+  defp format_quality_ink("white"), do: "white"
+  defp format_quality_ink(_ink), do: "black"
+
+  defp format_quality_outcome("below_threshold_transparent_fallback"),
+    do: "Below preferred readability thresholds · best geometry-safe transparent result published"
+
+  defp format_quality_outcome(_outcome), do: "Preferred readability thresholds met"
+
+  defp format_readability_rejections([]), do: "none recorded"
+  defp format_readability_rejections(reasons), do: Enum.join(reasons, ", ")
+
   # Live attempt evidence still carries the raw rejection terms it collected, so
   # it is reduced to the same bounded classes the sidecar persists before display.
   defp format_quality_attempts(%Attempts{} = attempts),
@@ -1034,7 +1076,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp format_quality_attempts(%{scanned: 0}), do: "none scanned"
 
   defp format_quality_attempts(%{scanned: scanned, passed: passed} = attempts) do
-    "#{passed}/#{scanned} passed" <>
+    "#{passed}/#{scanned} met thresholds" <>
       format_rejection_reasons(Map.get(attempts, :rejection_reasons, %{}))
   end
 

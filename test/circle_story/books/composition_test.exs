@@ -44,6 +44,35 @@ defmodule CircleStory.Books.CompositionTest do
     assert html =~ "width:3675px"
     assert html =~ "Meet Ornella."
     assert out =~ "print_ready"
+    refute html =~ "background:rgba"
+  end
+
+  test "cached recomposition makes zero placement-provider calls" do
+    raw = write_raw("inner_cached_only", 1600, 900, :white)
+    cache_bbox(raw, [100, 600, 400, 950], "left")
+
+    spread = %InnerSpread{
+      position: 8,
+      text: "Reuse the measured semantic seed.",
+      image_prompt: "x",
+      generated_image_path: raw
+    }
+
+    provider = fn _params, _context ->
+      send(self(), :placement_provider_called)
+      {:error, :provider_must_not_run}
+    end
+
+    assert {:ok, html, _out} =
+             Composition.spread_html(
+               spread,
+               cached_bbox_only: true,
+               placement_fetcher: provider,
+               quality_optimizer: &CompositionQualityOptimizerFake.optimize/5
+             )
+
+    assert html =~ "Reuse the measured semantic seed."
+    refute_received :placement_provider_called
   end
 
   test "spread_html/2 uses the deterministic winner without publishing build-only provenance" do

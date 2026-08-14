@@ -35,7 +35,9 @@ defmodule CircleStory.Books.Composition.HtmlRendererTest do
     refute HtmlRenderer.document("<div>P</div>") =~ "outline: 6px solid red"
 
     Application.put_env(:circle_story, :debug_bounding_boxes, true)
-    assert HtmlRenderer.document("<div>P</div>") =~ ".fit-text { outline: 6px solid red"
+    document = HtmlRenderer.document("<div>P</div>")
+    assert document =~ ".fit-text { outline: 6px solid red"
+    refute document =~ "background: rgba"
   end
 
   @tag :integration

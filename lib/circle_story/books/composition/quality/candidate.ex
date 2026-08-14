@@ -17,9 +17,10 @@ defmodule CircleStory.Books.Composition.Quality.Candidate do
               [
                 :measure,
                 :ink,
-                :treatment,
                 :glyph_bounds,
+                :selection_outcome,
                 hard_rejections: [],
+                readability_rejections: [],
                 metrics: %{},
                 soft_metrics: %{},
                 soft_contributions: %{},

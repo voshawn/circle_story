@@ -72,7 +72,7 @@ defmodule CircleStory.Books.Composition.HtmlRenderer do
   # `outline` is used (not `border`) so it does not affect layout/autofit.
   defp debug_css do
     if Application.get_env(:circle_story, :debug_bounding_boxes, false) do
-      ".fit-text { outline: 6px solid red; background: rgba(255, 0, 0, 0.06); }"
+      ".fit-text { outline: 6px solid red; }"
     else
       ""
     end

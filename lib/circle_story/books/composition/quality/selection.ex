@@ -1,27 +1,19 @@
 defmodule CircleStory.Books.Composition.Quality.Selection do
-  @moduledoc "Hard-gate filtering followed by named, configurable soft ranking."
+  @moduledoc """
+  Preferred-threshold selection with a deterministic transparent fallback.
+
+  Non-negotiable geometry and renderer failures are never selectable. When no
+  geometry-safe transparent candidate meets every readability threshold, the
+  existing glyph-mask contrast and edge metrics rank the best available result.
+  """
 
   alias CircleStory.Books.Composition.Quality.{Candidate, Geometry, Policy}
 
   @spec choose([Candidate.t()], map(), Policy.t()) :: {:ok, Candidate.t()} | {:error, term()}
   def choose(candidates, seed_rect, %Policy{} = policy) do
-    case Enum.filter(candidates, &(&1.hard_rejections == [])) do
-      [] ->
-        {:error, :no_candidate_passed_hard_gates}
-
-      passing ->
-        {:ok,
-         passing
-         |> weakest_passing_treatment()
-         |> Enum.map(&rank(&1, seed_rect, policy))
-         |> Enum.max_by(fn candidate ->
-           {
-             candidate.soft_total,
-             candidate.measure.font_size,
-             -Geometry.area(candidate.rect),
-             -candidate.index
-           }
-         end)}
+    case Enum.filter(candidates, &preferred?/1) do
+      [] -> choose_fallback(candidates, seed_rect, policy)
+      passing -> {:ok, choose_preferred(passing, seed_rect, policy)}
     end
   end
 
@@ -56,17 +48,78 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
     }
   end
 
-  # Soft weights rank layouts, never treatment strength: a stronger backing can
-  # only win when no weaker treatment passed the hard gates at all. Because that
-  # is settled here, before ranking, no soft weight over treatment strength could
-  # affect the ordering, so none exists.
-  defp weakest_passing_treatment(passing) do
-    weakest = passing |> Enum.map(&treatment_strength(&1.treatment)) |> Enum.min()
-    Enum.filter(passing, &(treatment_strength(&1.treatment) == weakest))
+  defp choose_preferred(passing, seed_rect, policy) do
+    passing
+    |> Enum.map(&rank(&1, seed_rect, policy))
+    |> Enum.max_by(fn candidate ->
+      {
+        candidate.soft_total,
+        candidate.measure.font_size,
+        -Geometry.area(candidate.rect),
+        -candidate.index,
+        ink_tie_breaker(candidate.ink)
+      }
+    end)
+    |> Map.put(:selection_outcome, :threshold_pass)
   end
 
-  defp treatment_strength(nil), do: 0.0
-  defp treatment_strength(%{opacity: opacity}), do: opacity
+  defp choose_fallback(candidates, seed_rect, policy) do
+    case Enum.filter(candidates, &fallback_eligible?/1) do
+      [] ->
+        {:error, :no_geometry_safe_candidate}
+
+      eligible ->
+        selected =
+          eligible
+          |> Enum.max_by(&fallback_rank/1)
+          |> rank(seed_rect, policy)
+          |> Map.put(:selection_outcome, :below_threshold_transparent_fallback)
+
+        {:ok, selected}
+    end
+  end
+
+  # This tuple is intentionally lexicographic and contains only existing,
+  # persisted glyph-mask readability evidence before deterministic tie-breakers:
+  # maximize the weakest contrast distribution, minimize locally low-contrast
+  # ink, then prefer stronger tile/line contrast and quieter texture.
+  defp fallback_rank(candidate) do
+    tile_contrast = candidate.metrics.worst_tile_p10
+    line_contrast = candidate.metrics.worst_line_p05
+
+    {
+      min(tile_contrast, line_contrast),
+      -candidate.metrics.worst_tile_low_contrast_fraction,
+      tile_contrast,
+      line_contrast,
+      -candidate.metrics.edge_density,
+      -candidate.index,
+      ink_tie_breaker(candidate.ink)
+    }
+  end
+
+  defp preferred?(candidate),
+    do: candidate.hard_rejections == [] and candidate.readability_rejections == []
+
+  defp fallback_eligible?(candidate) do
+    candidate.hard_rejections == [] and candidate.readability_rejections != [] and
+      readability_metrics?(candidate.metrics)
+  end
+
+  defp readability_metrics?(metrics) do
+    Enum.all?(
+      [
+        Map.get(metrics, :worst_tile_p10),
+        Map.get(metrics, :worst_tile_low_contrast_fraction),
+        Map.get(metrics, :worst_line_p05),
+        Map.get(metrics, :edge_density)
+      ],
+      &is_number/1
+    )
+  end
+
+  defp ink_tie_breaker(:black), do: 1
+  defp ink_tie_breaker(:white), do: 0
 
   defp glyph_margins(candidate) do
     bounds = candidate.glyph_bounds

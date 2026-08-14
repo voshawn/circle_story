@@ -13,11 +13,9 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
           Candidate.t(),
           Vix.Vips.Image.t(),
           Policy.t(),
-          atom(),
-          map() | nil
-        ) ::
-          Candidate.t()
-  def score(art, %Candidate{} = candidate, mask, %Policy{} = policy, ink, treatment \\ nil)
+          :black | :white
+        ) :: Candidate.t()
+  def score(art, %Candidate{} = candidate, mask, %Policy{} = policy, ink)
       when ink in [:black, :white] do
     with {:ok, art_binary, mask_binary} <- binaries(art, candidate.rect, mask) do
       tile_size = max(round(candidate.measure.font_size * policy.tile_size_ratio), 16)
@@ -34,16 +32,15 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
           tile_size,
           tile_stride,
           ink_luminance,
-          treatment,
           policy.edge_threshold,
           0,
           empty_samples()
         )
 
-      put_score(candidate, samples, policy, ink, treatment)
+      put_score(candidate, samples, policy, ink)
     else
       {:error, reason} ->
-        %{candidate | ink: ink, treatment: treatment, hard_rejections: [reason]}
+        %{candidate | ink: ink, hard_rejections: [reason], readability_rejections: []}
     end
   end
 
@@ -108,7 +105,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
          _tile_size,
          _tile_stride,
          _ink_luminance,
-         _treatment,
          _edge_threshold,
          _index,
          state
@@ -127,7 +123,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
          tile_size,
          tile_stride,
          ink_luminance,
-         treatment,
          edge_threshold,
          index,
          state
@@ -137,8 +132,9 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
 
     state =
       if mask >= @core_threshold do
-        background = effective_background([red, green, blue], treatment)
-        contrast = Luminance.contrast_ratio(ink_luminance, Luminance.relative(background))
+        contrast =
+          Luminance.contrast_ratio(ink_luminance, Luminance.relative([red, green, blue]))
+
         edge? = edge_pixel?(art_binary, x, y, width, height, edge_threshold)
         line = line_index(lines, x, y)
         tile_keys = tile_keys(x, y, tile_size, tile_stride)
@@ -163,7 +159,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       tile_size,
       tile_stride,
       ink_luminance,
-      treatment,
       edge_threshold,
       index + 1,
       state
@@ -191,14 +186,6 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       :binary.at(binary, offset + 1),
       :binary.at(binary, offset + 2)
     ])
-  end
-
-  defp effective_background(rgb, nil), do: rgb
-
-  defp effective_background(rgb, %{type: :backing, color: color, opacity: opacity}) do
-    Enum.zip_with(rgb, Luminance.rgb(color), fn source, overlay ->
-      round(source * (1 - opacity) + overlay * opacity)
-    end)
   end
 
   defp line_index(lines, x, y) do
@@ -243,17 +230,17 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     |> Map.update!(:max_y, &if(is_nil(&1), do: y, else: max(&1, y)))
   end
 
-  defp put_score(candidate, %{count: 0}, _policy, ink, treatment) do
+  defp put_score(candidate, %{count: 0}, _policy, ink) do
     %{
       candidate
       | ink: ink,
-        treatment: treatment,
         hard_rejections: [:empty_glyph_mask],
+        readability_rejections: [],
         metrics: Map.put(candidate.metrics, :glyph_samples, 0)
     }
   end
 
-  defp put_score(candidate, samples, policy, ink, treatment) do
+  defp put_score(candidate, samples, policy, ink) do
     all_summary = summarize(samples.all, policy)
 
     tile_summaries =
@@ -284,15 +271,21 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       h: samples.max_y - samples.min_y + 1
     }
 
-    rejections =
-      candidate.hard_rejections
+    hard_rejections =
+      reject_if(
+        candidate.hard_rejections,
+        not glyph_within_inset?(glyph_bounds, candidate),
+        :glyph_effect_inset
+      )
+
+    readability_rejections =
+      []
       |> reject_if(worst_tile.p10 < policy.hard_contrast, :local_contrast_percentile)
       |> reject_if(
         worst_tile_fraction.low_fraction > policy.max_low_contrast_fraction,
         :local_contrast_fraction
       )
       |> reject_if(worst_line.p05 < policy.hard_contrast, :line_contrast)
-      |> reject_if(not glyph_within_inset?(glyph_bounds, candidate), :glyph_effect_inset)
 
     metrics =
       candidate.metrics
@@ -312,9 +305,9 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
     %{
       candidate
       | ink: ink,
-        treatment: treatment,
         glyph_bounds: glyph_bounds,
-        hard_rejections: Enum.uniq(rejections),
+        hard_rejections: Enum.uniq(hard_rejections),
+        readability_rejections: Enum.uniq(readability_rejections),
         metrics: metrics
     }
   end

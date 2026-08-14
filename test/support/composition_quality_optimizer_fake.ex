@@ -25,12 +25,15 @@ defmodule CircleStory.CompositionQualityOptimizerFake do
         lines: []
       },
       ink: :black,
-      treatment: nil,
+      selection_outcome: :threshold_pass,
       glyph_bounds: %{x: policy.internal_inset, y: policy.internal_inset, w: 1, h: 1},
       metrics: %{
+        overall_p05: 10.0,
+        overall_low_contrast_fraction: 0.0,
         worst_tile_p10: 10.0,
         worst_tile_low_contrast_fraction: 0.0,
         worst_line_p05: 10.0,
+        worst_line_low_contrast_fraction: 0.0,
         edge_density: 0.0
       },
       soft_total: 1.0

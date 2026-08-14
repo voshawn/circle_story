@@ -8,7 +8,7 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
 
   alias CircleStory.Books.Composition.Layout
 
-  @contract_version "composition-quality-v1"
+  @contract_version "composition-quality-v2"
 
   @default_weights %{
     readability: 4.0,
@@ -46,7 +46,6 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
     :max_unsafe_strip_fraction,
     :max_edge_strip_fraction,
     :max_saliency_strip_fraction,
-    :backing_opacities,
     :soft_weights
   ]
 
@@ -122,7 +121,6 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
       max_unsafe_strip_fraction: 0.35,
       max_edge_strip_fraction: 0.5,
       max_saliency_strip_fraction: 0.6,
-      backing_opacities: [0.44, 0.6, 0.78],
       soft_weights: @default_weights
     }
   end

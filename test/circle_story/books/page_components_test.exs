@@ -26,7 +26,7 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ ~s(data-max-font="64")
   end
 
-  test "inner_spread/1 renders the selected safety inset, font cap, and backing" do
+  test "inner_spread/1 renders the selected safety inset and font cap with transparent text" do
     html =
       render_component(&PageComponents.inner_spread/1, %{
         art_uri: "data:image/png;base64,AAAA",
@@ -37,14 +37,13 @@ defmodule CircleStory.Books.PageComponentsTest do
         color: "#1A1A1A",
         text_inset: 48,
         text_min_font: 18,
-        text_max_font: 56,
-        text_backing: %{type: :backing, color: :white, opacity: 0.44}
+        text_max_font: 56
       })
 
     assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
     assert html =~ ~s(data-min-font="18")
     assert html =~ ~s(data-max-font="56")
-    assert html =~ "background:rgba(250,250,250,0.44)"
+    refute html =~ "background:rgba"
   end
 
   test "cover/1 applies the selected font floor to the front panel only" do
