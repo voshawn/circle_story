@@ -1040,7 +1040,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp format_quality_metric(_), do: "—"
 
   defp format_quality_percent(value) when is_number(value),
-    do: :erlang.float_to_binary(value * 100, decimals: 1) <> "%"
+    do: :erlang.float_to_binary(value * 100.0, decimals: 1) <> "%"
 
   defp format_quality_percent(_), do: "—"
 

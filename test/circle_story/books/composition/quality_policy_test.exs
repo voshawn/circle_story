@@ -451,7 +451,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert scored.metrics.overall_low_contrast_fraction < 0.01
 
     pressed = Scorer.score(art, %{candidate | id: "pressed", inset: 30}, mask, policy, :black)
-    assert :glyph_effect_inset in pressed.hard_rejections
+    assert :glyph_inset in pressed.hard_rejections
   end
 
   # The tile with the weakest contrast percentile and the tile with the largest
@@ -568,7 +568,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
         1,
         %{x: 520, y: 40, w: 160, h: 160},
         64,
-        [:glyph_effect_inset]
+        [:glyph_inset]
       )
 
     assert {:ok, selected} = Selection.choose([unsafe, safe], safe.rect, policy)
@@ -604,7 +604,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     white = %{black | ink: :white}
 
     geometry_failure =
-      evaluated_candidate("clipped", 2, rect, 24, [:glyph_effect_inset])
+      evaluated_candidate("clipped", 2, rect, 24, [:glyph_inset])
       |> put_readability_metrics(20.0, 0.0, 20.0, 0.0)
 
     assert {:ok, selected} =
@@ -624,10 +624,10 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     scenarios = [
       [[]],
       [[:local_contrast_percentile]],
-      [[:glyph_effect_inset]],
-      [[:glyph_effect_inset], [:line_contrast]],
-      [[:glyph_effect_inset, :local_contrast_fraction]],
-      [[:local_contrast_fraction], [], [:glyph_effect_inset]]
+      [[:glyph_inset]],
+      [[:glyph_inset], [:line_contrast]],
+      [[:glyph_inset, :local_contrast_fraction]],
+      [[:local_contrast_fraction], [], [:glyph_inset]]
     ]
 
     for rejection_sets <- scenarios do
@@ -899,8 +899,8 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       evaluated_candidate("u0", 0, rect, 24, [:local_contrast_percentile]),
       evaluated_candidate("u1", 1, rect, 24, [:local_contrast_percentile]),
       evaluated_candidate("u2", 2, rect, 24, [:local_contrast_fraction]),
-      evaluated_candidate("g1", 4, rect, 24, [:glyph_effect_inset]),
-      evaluated_candidate("g2", 5, rect, 24, [:glyph_effect_inset])
+      evaluated_candidate("g1", 4, rect, 24, [:glyph_inset]),
+      evaluated_candidate("g2", 5, rect, 24, [:glyph_inset])
     ]
 
     result = %Result{
@@ -927,7 +927,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
              rejection_reasons: %{
                "local_contrast_percentile" => 2,
                "local_contrast_fraction" => 1,
-               "glyph_effect_inset" => 2
+               "glyph_inset" => 2
              }
            }
 

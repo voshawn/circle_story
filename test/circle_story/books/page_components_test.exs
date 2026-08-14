@@ -1,6 +1,7 @@
 defmodule CircleStory.Books.PageComponentsTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
+  import CircleStory.BackingLayerAssertions
 
   alias CircleStory.Books.PageComponents
 
@@ -43,7 +44,93 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
     assert html =~ ~s(data-min-font="18")
     assert html =~ ~s(data-max-font="56")
-    refute html =~ "background:rgba"
+    assert_transparent_text_box(html)
+    assert_no_fill_anywhere(html)
+  end
+
+  test "no page surface paints a backing layer behind composed text" do
+    inner =
+      render_component(&PageComponents.inner_spread/1, %{
+        art_uri: "data:image/png;base64,AAAA",
+        text: "Meet Ornella.",
+        rect: %{x: 300, y: 200, w: 900, h: 400},
+        align: :center,
+        valign: :middle,
+        color: "#FAFAFA",
+        text_inset: 48,
+        text_min_font: 18,
+        text_max_font: 56
+      })
+
+    assert_transparent_text_box(inner)
+    assert_no_fill_anywhere(inner)
+
+    cover =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "Nani's Magic Thread",
+        author: "Sidd & Veronika",
+        tagline: "A story of love.",
+        fill: "rgb(180,170,150)",
+        ink: "#1A1A1A"
+      })
+
+    assert_transparent_text_box(cover)
+
+    candidate = %{
+      id: "candidate-0",
+      rect: %{x: 0, y: 0, w: 900, h: 400},
+      align: :center,
+      valign: :middle,
+      min_font: 24,
+      max_font: 360,
+      inset: 48
+    }
+
+    sheet =
+      render_component(&PageComponents.quality_sheet/1, %{
+        candidates: [candidate],
+        content: %{text: "Meet Ornella."},
+        role: :inner
+      })
+
+    mask =
+      render_component(&PageComponents.quality_mask/1, %{
+        candidate: candidate,
+        content: %{text: "Meet Ornella."},
+        role: :inner
+      })
+
+    assert_transparent_text_box(sheet)
+    assert_transparent_text_box(mask)
+  end
+
+  test "a fill declared behind the text box is what these regressions catch" do
+    backed =
+      ~s(<div style="position:relative;"><div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="background:#00000080;color:#FFF">Meet Ornella.</div>) <>
+        ~s(</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(backed) end
+
+    sibling =
+      ~s(<div style="position:relative;">) <>
+        ~s(<div style="position:absolute;left:300px;top:200px;box-shadow:0 0 0 40px #fff;"></div>) <>
+        ~s(<div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="color:#FFF">Meet Ornella.</div></div></div></div>)
+
+    assert_transparent_text_box(sibling)
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(sibling) end
+
+    styled =
+      ~s|<style>.fit-text { background-color: rgb(0,0,0); }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="color:#FFF">Meet Ornella.</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(styled) end
   end
 
   test "cover/1 applies the selected font floor to the front panel only" do

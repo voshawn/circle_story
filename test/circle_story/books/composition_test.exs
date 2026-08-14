@@ -2,6 +2,7 @@ defmodule CircleStory.Books.CompositionTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import CircleStory.BackingLayerAssertions
 
   alias CircleStory.Books.Composition
   alias CircleStory.Books.Composition.ImageOps
@@ -44,7 +45,8 @@ defmodule CircleStory.Books.CompositionTest do
     assert html =~ "width:3675px"
     assert html =~ "Meet Ornella."
     assert out =~ "print_ready"
-    refute html =~ "background:rgba"
+    assert_transparent_text_box(html)
+    assert_no_fill_anywhere(html)
   end
 
   test "cached recomposition makes zero placement-provider calls" do

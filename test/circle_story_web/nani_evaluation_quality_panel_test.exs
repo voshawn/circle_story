@@ -142,7 +142,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
           {:image_binary_failed, "VipsJpeg: out of order read over #{document}"} => 1,
           {:image_binary_failed, :vips_closed} => 1,
           :local_contrast_percentile => 2,
-          :glyph_effect_inset => 2
+          :glyph_inset => 2
         }
       },
       mask_render_errors: [
@@ -157,7 +157,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     assert entry.message =~ "image_binary_failed ×1"
     assert entry.message =~ "image_binary_failed:vips_closed ×1"
     assert entry.message =~ "local_contrast_percentile ×2"
-    assert entry.message =~ "glyph_effect_inset ×2"
+    assert entry.message =~ "glyph_inset ×2"
     assert entry.evidence == "renderer_exception:ArgumentError ×1"
     assert entry.evidence_label == "Composition diagnostics"
     refute entry.message =~ "VipsJpeg"
@@ -176,7 +176,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
         scanned: 6,
         passed: 0,
         rejected: 6,
-        rejection_reasons: %{:local_contrast_percentile => 4, :glyph_effect_inset => 2}
+        rejection_reasons: %{:local_contrast_percentile => 4, :glyph_inset => 2}
       },
       mask_render_errors: []
     }
@@ -184,7 +184,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     entry = NaniEvaluationLive.error_entry({:composition_quality_failed, details})
 
     assert entry.message =~ "local_contrast_percentile ×4"
-    assert entry.message =~ "glyph_effect_inset ×2"
+    assert entry.message =~ "glyph_inset ×2"
     assert entry.evidence == nil
     assert entry.evidence_label == nil
   end
@@ -322,6 +322,29 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
 
     assert html =~ "Transparent black/white attempts: no recorded evidence"
     assert html =~ "— scans"
+  end
+
+  test "whole-number metrics from a sidecar render instead of crashing the page" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-6",
+        quality:
+          quality(
+            font_size: 61,
+            metrics: %{
+              worst_tile_p10: 6,
+              worst_tile_low_contrast_fraction: 0,
+              worst_line_p05: 7,
+              edge_density: 1,
+              soft_total: 10
+            }
+          )
+      })
+
+    assert html =~ "Font 61.00px"
+    assert html =~ "Worst tile p10 6.00:1"
+    assert html =~ "below 3:1 0.0%"
+    assert html =~ "edge 100.0%"
   end
 
   # The decoded shape `Composition.cached_placement/1` hands the evaluation page.

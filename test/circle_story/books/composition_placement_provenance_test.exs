@@ -183,7 +183,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
       ink: "black",
       selection_outcome: "below_threshold_transparent_fallback",
       readability_thresholds_met: false,
-      readability_rejections: ["glyph_effect_inset", "local_contrast_percentile"],
+      readability_rejections: ["glyph_inset", "local_contrast_percentile"],
       metrics: %{}
     }
 

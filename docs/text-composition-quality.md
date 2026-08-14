@@ -153,12 +153,20 @@ path, or photo data. The compatibility treatment field is fixed to `none`; it
 cannot encode a visual layer. Superseded contract versions are ignored for
 quality display.
 
-Renderer and image-library terms are never persisted or displayed verbatim. A
-ChromicPDF exit can contain the whole page document, and an exception can quote
-private content. `Quality.Diagnostics.reason_class/1` reduces each reason to a
-bounded class built only from atom tags, capped at four segments and 96
-characters. Frequency collisions are summed so persisted counts still reconcile
-with rejected variants.
+Renderer and image-library terms reaching the composition-quality diagnostic
+paths — persisted attempt evidence, mask-render errors, quality/measurement
+failure reasons, and the unrecognized-reason catch-all in the evaluation UI —
+are never persisted or displayed verbatim. A ChromicPDF exit can contain the
+whole page document, and an exception can quote private content.
+`Quality.Diagnostics.reason_class/1` reduces each reason to a bounded class
+built only from atom tags, capped at four segments and 96 characters. Frequency
+collisions are summed so persisted counts still reconcile with rejected
+variants.
+
+Two pre-existing development-only error paths are outside that guarantee and
+unchanged by this work: `{:chromic_pdf_failure, message}` and the generic
+`{:exception, message}` card still show the raised message text. They are never
+persisted to the sidecar.
 
 Deterministic selection is recomputed on every composition, including cached
 bbox recomposition; it is not reused as a stale output cache. The cached-only
@@ -201,5 +209,10 @@ Within one scan, only pixels at or above the core mask threshold touch the
 sample accumulator. A contributing pixel accumulates one contrast value into
 the overall, line, and overlapping-tile groups. The sRGB gamma expansion behind
 relative luminance uses a compile-time 256-entry table rather than a power call
-per channel per pixel. Per-scan cost still scales with glyph area; production
-calibration remains tracked as GitHub issue #13.
+per channel per pixel.
+
+Per-scan cost therefore scales with the **candidate rect area**: every pixel of
+the rect is walked once, and glyph area only sets how many of those pixels pay
+the accumulator cost. An inner-spread rect can approach 1700x1650px, so worst
+case is 20 such scans per page. Production calibration remains tracked as
+GitHub issue #13.

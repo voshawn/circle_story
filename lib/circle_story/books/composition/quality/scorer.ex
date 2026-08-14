@@ -289,7 +289,7 @@ defmodule CircleStory.Books.Composition.Quality.Scorer do
       reject_if(
         candidate.hard_rejections,
         not glyph_within_inset?(glyph_bounds, candidate),
-        :glyph_effect_inset
+        :glyph_inset
       )
 
     readability_rejections =
