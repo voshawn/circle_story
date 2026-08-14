@@ -26,6 +26,47 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ ~s(data-max-font="64")
   end
 
+  test "inner_spread/1 renders the selected safety inset, font cap, and backing" do
+    html =
+      render_component(&PageComponents.inner_spread/1, %{
+        art_uri: "data:image/png;base64,AAAA",
+        text: "Safe text",
+        rect: %{x: 300, y: 200, w: 900, h: 400},
+        align: :center,
+        valign: :top,
+        color: "#1A1A1A",
+        text_inset: 48,
+        text_min_font: 18,
+        text_max_font: 56,
+        text_backing: %{type: :backing, color: :white, opacity: 0.44}
+      })
+
+    assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
+    assert html =~ ~s(data-min-font="18")
+    assert html =~ ~s(data-max-font="56")
+    assert html =~ "background:rgba(250,250,250,0.44)"
+  end
+
+  test "cover/1 applies the selected font floor to the front panel only" do
+    html =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "T",
+        author: "A",
+        tagline: "A story of love.",
+        fill: "rgb(1,2,3)",
+        ink: "#1A1A1A",
+        text_min_font: 18
+      })
+
+    assert html =~ ~s(data-min-font="18")
+    # The back-panel tagline is not a searched candidate and keeps the page floor.
+    assert html =~ ~s(data-min-font="24")
+  end
+
   test "inner_spread/1 honors the vertical anchor (valign)" do
     base = %{
       art_uri: "data:image/png;base64,AAAA",
@@ -127,6 +168,83 @@ defmodule CircleStory.Books.PageComponentsTest do
       })
 
     assert html =~ "background:pink"
+  end
+
+  test "the printed page, the fit sheet, and the scored mask render one role body" do
+    candidate = %{
+      id: "candidate-0",
+      rect: %{x: 0, y: 0, w: 900, h: 400},
+      align: :center,
+      valign: :middle,
+      min_font: 24,
+      max_font: 360,
+      inset: 48
+    }
+
+    cover_content = %{title: "Nani's Magic Thread", author: "Sidd & Veronika"}
+
+    page =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: candidate.rect,
+        align: :center,
+        front_color: "#FAFAFA",
+        title: cover_content.title,
+        author: cover_content.author,
+        tagline: "A story of love.",
+        fill: "rgb(180,170,150)",
+        ink: "#1A1A1A"
+      })
+
+    sheet =
+      render_component(&PageComponents.quality_sheet/1, %{
+        candidates: [candidate],
+        content: cover_content,
+        role: :cover
+      })
+
+    mask =
+      render_component(&PageComponents.quality_mask/1, %{
+        candidate: candidate,
+        content: cover_content,
+        role: :cover
+      })
+
+    assert role_body(page) == role_body(sheet)
+    assert role_body(page) == role_body(mask)
+    assert role_body(page) =~ "font-size:0.5em;margin-top:0.18em"
+
+    inner_content = %{text: "Meet Ornella."}
+
+    inner_page =
+      render_component(&PageComponents.inner_spread/1, %{
+        art_uri: "data:image/png;base64,AAAA",
+        text: inner_content.text,
+        rect: candidate.rect,
+        align: :center,
+        color: "#1A1A1A"
+      })
+
+    inner_mask =
+      render_component(&PageComponents.quality_mask/1, %{
+        candidate: candidate,
+        content: inner_content,
+        role: :inner
+      })
+
+    assert role_body(inner_page) == role_body(inner_mask)
+    assert role_body(inner_page) =~ "Meet Ornella."
+  end
+
+  # The last `.fit-inner` is the front-panel/candidate text; the pipeline's
+  # guarantee is that all three surfaces render it identically.
+  defp role_body(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(".fit-inner")
+    |> Enum.map(&(&1 |> LazyHTML.child_nodes() |> LazyHTML.to_html()))
+    |> List.last()
+    |> String.trim()
   end
 
   test "cover/1 renders all three panels, title/author, tagline, blurb, spine" do

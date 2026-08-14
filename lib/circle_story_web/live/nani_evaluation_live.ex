@@ -14,6 +14,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   alias CircleStory.Books.CharacterSelector.Gemini, as: SelectorGemini
   alias CircleStory.Books.Composition.ImageOps
+  alias CircleStory.Books.Composition.Quality.{Attempts, Diagnostics}
   alias CircleStory.Books.Templates.NanisMagicThread
 
   @source_extensions ~w(.png .jpg .jpeg .webp)
@@ -321,7 +322,10 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
          |> assign(:ignore_pipeline_exit?, true)
          |> assign(:pending, nil)
          |> assign(:notice, "Action cancelled. Completed files were preserved on disk.")
-         |> assign(:errors, Map.put(socket.assigns.errors, key, "Cancelled by operator."))
+         |> assign(
+           :errors,
+           Map.put(socket.assigns.errors, key, error_entry("Cancelled by operator."))
+         )
          |> refresh_evaluation()}
     end
   end
@@ -369,14 +373,14 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   end
 
   def handle_async(@pipeline_task, {:ok, {:error, failure}}, socket) do
-    message = format_error(failure.reason)
+    entry = error_entry(failure.reason)
 
     {:noreply,
      socket
      |> assign(:active, nil)
      |> assign(:pending, nil)
      |> assign(:notice, "Action stopped. Previous and completed artifacts remain on disk.")
-     |> assign(:errors, Map.put(socket.assigns.errors, failure.stage.item_key, message))
+     |> assign(:errors, Map.put(socket.assigns.errors, failure.stage.item_key, entry))
      |> refresh_evaluation()}
   end
 
@@ -400,7 +404,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
      |> assign(:active, nil)
      |> assign(:pending, nil)
      |> assign(:notice, "The async action exited. Existing files were retained.")
-     |> assign(:errors, Map.put(socket.assigns.errors, key, format_error(reason)))
+     |> assign(:errors, Map.put(socket.assigns.errors, key, error_entry(reason)))
      |> refresh_evaluation()}
   end
 
@@ -791,19 +795,197 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
     |> stream(:pages, evaluation.pages, reset: true)
   end
 
-  defp format_error({:chromic_pdf_timeout, _message}) do
+  attr :id, :string, required: true
+  attr :quality, :map, required: true
+
+  @doc """
+  Persisted deterministic composition evidence for one composed page.
+
+  Untreated ink attempts and backing attempts are reported separately: a page
+  that shipped with a backing is only auditable if the reviewer can see that
+  plain ink was scanned first and why every one of those scans was refused.
+  """
+  def composition_quality(assigns) do
+    assigns = assign(assigns, :attempts, Map.get(assigns.quality, :attempts) || %{})
+
+    ~H"""
+    <div
+      id={@id}
+      class={["mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-950"]}
+    >
+      <p class={["font-semibold"]}>
+        Deterministic composition · {@quality.treatment}
+      </p>
+      <p>
+        Final {format_quality_rect(@quality.final_rect)} · {@quality.align}/{@quality.valign} · {@quality.adjustment}
+      </p>
+      <p>
+        Font {format_quality_metric(@quality.font_size)}px · {@quality.line_count} lines · {@quality.candidate_count} candidates · {format_quality_metric(
+          @quality.duration_ms
+        )}ms
+      </p>
+      <p>
+        Glyphs {format_quality_rect(@quality.glyph_bounds)} · effect {format_quality_rect(
+          @quality.effect_bounds
+        )}
+      </p>
+      <p>
+        Worst tile p10 {format_quality_metric(@quality.metrics.worst_tile_p10)}:1 ·
+        below 3:1 {format_quality_percent(@quality.metrics.worst_tile_low_contrast_fraction)} ·
+        edge {format_quality_percent(@quality.metrics.edge_density)}
+      </p>
+      <p>
+        Untreated ink: {format_quality_attempts(Map.get(@attempts, :untreated))}
+      </p>
+      <p>
+        Backing attempts: {format_quality_attempts(Map.get(@attempts, :treated))}
+      </p>
+      <p :if={Map.get(@quality, :mask_render_errors, []) != []}>
+        Mask render failures: {format_mask_render_errors(@quality.mask_render_errors)}
+      </p>
+      <p class={["break-all text-[0.65rem] text-emerald-800/75"]}>
+        {@quality.contract_version} · {@quality.candidate_id} · {format_quality_count(
+          Map.get(@quality, :scored_count)
+        )} scans · {@quality.rejected_count} rejected variants
+      </p>
+    </div>
+    """
+  end
+
+  @doc false
+  @spec format_error(term()) :: String.t()
+  def format_error({:chromic_pdf_timeout, _message}) do
     "ChromicPDF timed out while composing this page. Prior art and pages were retained."
   end
 
-  defp format_error({:chromic_pdf_failure, message}), do: "ChromicPDF failed: #{message}"
-  defp format_error(:no_raw_art), do: "No raw art exists for this item yet."
-  defp format_error(:no_cached_bounding_box), do: "No cached text placement exists yet."
-  defp format_error(:unknown_page), do: "Unknown Nani page."
-  defp format_error(:unknown_character), do: "Unknown Nani character."
-  defp format_error(:invalid_action), do: "That action is not available."
-  defp format_error({:exception, message}), do: message
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason, limit: 8, printable_limit: 500)
+  def format_error({:chromic_pdf_failure, message}), do: "ChromicPDF failed: #{message}"
+  def format_error(:no_raw_art), do: "No raw art exists for this item yet."
+  def format_error(:no_cached_bounding_box), do: "No cached text placement exists yet."
+  def format_error(:unknown_page), do: "Unknown Nani page."
+  def format_error(:unknown_character), do: "Unknown Nani character."
+  def format_error(:invalid_action), do: "That action is not available."
+
+  def format_error({:composition_overflow, %{minimum_font: font}}) do
+    "Story text cannot fit without clipping at the #{font}px minimum. Revise or split the page upstream."
+  end
+
+  # A browser that returned no usable measurement is a local rendering fault, so
+  # it must never be reported as page content the author has to rewrite.
+  def format_error({:composition_measurement_failed, _details}) do
+    "The local browser returned no usable text measurement, so nothing was composed. " <>
+      "Check Chrome and retry; the page content was not the problem."
+  end
+
+  # Every finalist mask failing is the same class of local fault. The operator
+  # copy is fixed; the bounded fault classes behind it travel as separate
+  # evidence through `error_evidence/1` rather than inside this sentence.
+  def format_error({:composition_mask_render_failed, _errors}) do
+    "Text readability verification could not run because the local renderer failed. " <>
+      "No composed page was published. Retry composition; if the problem continues, " <>
+      "inspect the local Chrome renderer."
+  end
+
+  def format_error({:composition_quality_failed, details}) do
+    "No deterministic text treatment passed the hard readability gates " <>
+      "(#{format_quality_attempts(Map.get(details, :untreated))} untreated, " <>
+      "#{format_quality_attempts(Map.get(details, :treated))} with backing). " <>
+      "Existing output was retained."
+  end
+
+  def format_error({:exception, message}), do: message
+  def format_error(reason) when is_binary(reason), do: reason
+
+  # An unrecognized reason is still a third-party term: a libvips message or a
+  # renderer exit can quote the page document it failed over, so the catch-all
+  # names the bounded fault class instead of inspecting the raw payload.
+  def format_error(reason), do: "Unexpected failure: #{Diagnostics.reason_class(reason)}."
+
+  @doc """
+  Bounded evidence for a failure, kept out of the operator message.
+
+  Mask faults arrive as opaque renderer terms that can embed the page document,
+  so only the sanitized class names and their counts are ever surfaced. Overflow
+  instead carries the browser's own fit geometry, which `evidence_label/1`
+  labels as a fit detail rather than a renderer fault.
+  """
+  @spec error_evidence(term()) :: String.t() | nil
+  def error_evidence({:composition_mask_render_failed, errors}),
+    do: format_mask_render_classes(errors)
+
+  def error_evidence({:composition_quality_failed, details}),
+    do: details |> Map.get(:mask_render_errors, []) |> format_mask_render_classes()
+
+  def error_evidence({:composition_overflow, details}),
+    do: details |> Map.get(:closest_fit) |> format_fit_evidence()
+
+  def error_evidence(
+        {:composition_measurement_failed, %{reason: :no_usable_measurement} = details}
+      ),
+      do: details |> Map.get(:rejection_reasons, %{}) |> format_reason_classes()
+
+  def error_evidence({:composition_measurement_failed, reason}),
+    do: Diagnostics.reason_class(reason)
+
+  def error_evidence(_reason), do: nil
+
+  @doc false
+  @spec error_entry(term()) :: %{
+          message: String.t(),
+          evidence: String.t() | nil,
+          evidence_label: String.t() | nil
+        }
+  def error_entry(reason) do
+    case error_evidence(reason) do
+      nil ->
+        %{message: format_error(reason), evidence: nil, evidence_label: nil}
+
+      evidence ->
+        %{
+          message: format_error(reason),
+          evidence: evidence,
+          evidence_label: evidence_label(reason)
+        }
+    end
+  end
+
+  # Overflow evidence is the browser's own fit geometry for content that did not
+  # fit; the renderer classes are local faults. Anything else stays neutral so a
+  # new reason can never be labelled as a cause it did not have.
+  defp evidence_label({:composition_overflow, _details}), do: "Fit details"
+  defp evidence_label({:composition_mask_render_failed, _errors}), do: "Renderer diagnostics"
+  defp evidence_label({:composition_quality_failed, _details}), do: "Renderer diagnostics"
+  defp evidence_label({:composition_measurement_failed, _details}), do: "Renderer diagnostics"
+  defp evidence_label(_reason), do: "Details"
+
+  defp format_mask_render_classes([_ | _] = errors) do
+    errors
+    |> Enum.map(fn {_candidate_id, reason} -> Diagnostics.reason_class(reason) end)
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {class, count} -> {-count, class} end)
+    |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+  end
+
+  defp format_mask_render_classes(_errors), do: nil
+
+  defp format_reason_classes(reasons) when is_map(reasons) and reasons != %{} do
+    reasons
+    |> Diagnostics.class_frequencies()
+    |> Enum.sort_by(fn {class, count} -> {-count, class} end)
+    |> Enum.map_join(", ", fn {class, count} -> "#{class} ×#{count}" end)
+  end
+
+  defp format_reason_classes(_reasons), do: nil
+
+  # Only the browser's own numbers: the box the candidate had, the box its text
+  # wanted, and the derived deltas. No story text is ever surfaced here.
+  defp format_fit_evidence(%{overflow_width: width, overflow_height: height} = fit) do
+    "closest fit #{fit.candidate_id} at #{format_quality_metric(fit.font_size)}px " <>
+      "overran by #{width}×#{height}px " <>
+      "(text #{fit.scroll_width}×#{fit.scroll_height}px in " <>
+      "#{fit.available_width}×#{fit.available_height}px)"
+  end
+
+  defp format_fit_evidence(_fit), do: nil
 
   defp error_for(errors, key), do: Map.get(errors, key)
   defp active_for?(nil, _key), do: false
@@ -825,6 +1007,55 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp placement_label(:unknown), do: "unknown · legacy cache"
   defp placement_label(:missing), do: "no placement cache"
   defp placement_label(:not_applicable), do: "not applicable"
+
+  defp format_quality_rect(%{x: x, y: y, w: width, h: height}),
+    do: "x=#{x}, y=#{y}, #{width}×#{height}px"
+
+  defp format_quality_rect(_), do: "unknown rect"
+
+  defp format_quality_metric(value) when is_number(value),
+    do: :erlang.float_to_binary(value * 1.0, decimals: 2)
+
+  defp format_quality_metric(_), do: "—"
+
+  defp format_quality_percent(value) when is_number(value),
+    do: :erlang.float_to_binary(value * 100, decimals: 1) <> "%"
+
+  defp format_quality_percent(_), do: "—"
+
+  defp format_quality_count(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_quality_count(_), do: "—"
+
+  # Live attempt evidence still carries the raw rejection terms it collected, so
+  # it is reduced to the same bounded classes the sidecar persists before display.
+  defp format_quality_attempts(%Attempts{} = attempts),
+    do: attempts |> Attempts.provenance() |> format_quality_attempts()
+
+  defp format_quality_attempts(%{scanned: 0}), do: "none scanned"
+
+  defp format_quality_attempts(%{scanned: scanned, passed: passed} = attempts) do
+    "#{passed}/#{scanned} passed" <>
+      format_rejection_reasons(Map.get(attempts, :rejection_reasons, %{}))
+  end
+
+  defp format_quality_attempts(_), do: "no recorded evidence"
+
+  defp format_rejection_reasons(reasons) when reasons == %{}, do: ""
+
+  defp format_rejection_reasons(reasons) when is_map(reasons) do
+    detail =
+      reasons
+      |> Enum.sort_by(fn {reason, count} -> {-count, to_string(reason)} end)
+      |> Enum.map_join(", ", fn {reason, count} -> "#{reason} ×#{count}" end)
+
+    " · rejected: #{detail}"
+  end
+
+  defp format_rejection_reasons(_), do: ""
+
+  defp format_mask_render_errors(errors) do
+    Enum.map_join(errors, ", ", fn error -> "#{error.candidate_id} (#{error.reason})" end)
+  end
 
   defp origin_label(session_items, key) do
     if current_session?(session_items, key),

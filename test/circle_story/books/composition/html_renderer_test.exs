@@ -40,7 +40,9 @@ defmodule CircleStory.Books.Composition.HtmlRendererTest do
 
   @tag :integration
   test "to_png/3 screenshots a page to an exact-size PNG" do
-    start_supervised!({ChromicPDF, []})
+    # Sandbox-less for the same reason as the composition quality tests: Ubuntu
+    # 23.10+ blocks Chrome's namespace sandbox via AppArmor.
+    start_supervised!({ChromicPDF, no_sandbox: true})
 
     page = ~s(<div style="width:400px;height:200px;background:teal"></div>)
     out = Path.join(System.tmp_dir!(), "hr_#{System.unique_integer([:positive])}.png")

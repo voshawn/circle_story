@@ -1,15 +1,19 @@
 defmodule CircleStory.Books.Composition do
   @moduledoc """
-  Orchestrates page composition. `*_html/_` build the page HTML (cheap; reuse a
-  cached bounding box, no Chrome). `compose_*` build then screenshot to a
-  print-ready PNG. Pass `force_bbox: true` (used by `Generator.generate_*`) to
-  refresh the bounding box.
+  Orchestrates page composition. `*_html/_` reuse a cached model placement and
+  run deterministic local Chrome quality search without taking the final page
+  screenshot. `compose_*` then capture a print-ready PNG and persist matching
+  quality provenance. Pass `force_bbox: true` (used by `Generator.generate_*`)
+  to refresh the model bounding box.
   """
 
   require Logger
 
-  alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance}
+  alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance, Quality}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result}
   alias CircleStory.Books.Actions.PlaceText
+
+  @quality_contract Policy.contract_version()
 
   alias CircleStory.Books.{
     Book,
@@ -30,16 +34,18 @@ defmodule CircleStory.Books.Composition do
   @spec compose_spread(InnerSpread.t(), keyword()) ::
           {:ok, %{image_path: String.t()}} | {:error, term()}
   def compose_spread(%InnerSpread{} = spread, opts \\ []) do
-    with {:ok, html, out} <- spread_html(spread, opts),
+    with {:ok, html, out, cache} <- build_spread_html(spread, opts),
          {:ok, path} <- HtmlRenderer.to_png(html, Layout.inner_dims(), out) do
+      persist_quality(cache)
       {:ok, %{image_path: path}}
     end
   end
 
   @spec compose_cover(Book.t(), keyword()) :: {:ok, %{image_path: String.t()}} | {:error, term()}
   def compose_cover(%Book{} = book, opts \\ []) do
-    with {:ok, html, out} <- cover_html(book, opts),
+    with {:ok, html, out, cache} <- build_cover_html(book, opts),
          {:ok, path} <- HtmlRenderer.to_png(html, Layout.cover_dims(), out) do
+      persist_quality(cache)
       {:ok, %{image_path: path}}
     end
   end
@@ -57,74 +63,107 @@ defmodule CircleStory.Books.Composition do
 
   @spec spread_html(InnerSpread.t(), keyword()) ::
           {:ok, String.t(), String.t()} | {:error, term()}
-  def spread_html(%InnerSpread{generated_image_path: raw, text: text}, opts \\ []) do
+  def spread_html(%InnerSpread{} = spread, opts \\ []) do
+    with {:ok, html, out, _cache} <- build_spread_html(spread, opts), do: {:ok, html, out}
+  end
+
+  defp build_spread_html(%InnerSpread{generated_image_path: raw, text: text}, opts) do
     {w, h} = Layout.inner_dims()
     fitted = ImageOps.fit(raw, w, h)
 
     with {:ok, box} <- placement(raw, fitted, text, :inner, opts) do
       region = Layout.inner_region()
-      # No size floor — trust the AI box (the quadrant prompt keeps it sensible).
-      # `denormalize/2` still applies the safe-inset clamp so text stays inside
-      # the printer bleed margin; body font size is capped in the component.
-      rect = Layout.denormalize(box.bounding_box, region)
-      color = fitted |> Luminance.pick_for_region(rect) |> Luminance.hex()
+      seed_rect = Layout.denormalize(box.bounding_box, region)
 
-      html =
-        HtmlRenderer.component_to_html(
-          PageComponents.inner_spread(
-            init_assigns(%{
-              art_uri: ImageOps.to_data_uri(fitted),
-              text: text,
-              rect: rect,
-              align: box.text_align,
-              valign: box.vertical_align,
-              color: color,
-              debug_rect: debug_rect(box.bounding_box, region)
-            })
+      with {:ok, quality} <-
+             optimize_quality(fitted, %{text: text}, box, seed_rect, :inner, opts) do
+        candidate = quality.candidate
+
+        html =
+          HtmlRenderer.component_to_html(
+            PageComponents.inner_spread(
+              init_assigns(%{
+                art_uri: ImageOps.to_data_uri(fitted),
+                text: text,
+                rect: candidate.rect,
+                align: candidate.align,
+                valign: candidate.valign,
+                color: Luminance.hex(candidate.ink),
+                text_inset: candidate.inset,
+                text_min_font: candidate.min_font,
+                text_max_font: candidate.max_font,
+                text_backing: candidate.treatment,
+                debug_rect: debug_rect(box.bounding_box, region)
+              })
+            )
           )
-        )
 
-      {:ok, html, ImageOps.print_ready_path(raw)}
+        cache = {raw, box, Result.provenance(quality)}
+        {:ok, html, ImageOps.print_ready_path(raw), cache}
+      end
     end
   end
 
   @spec cover_html(Book.t(), keyword()) :: {:ok, String.t(), String.t()} | {:error, term()}
-  def cover_html(%Book{cover: %CoverSpread{generated_image_path: raw} = cover} = book, opts \\ []) do
+  def cover_html(%Book{} = book, opts \\ []) do
+    with {:ok, html, out, _cache} <- build_cover_html(book, opts), do: {:ok, html, out}
+  end
+
+  defp build_cover_html(
+         %Book{cover: %CoverSpread{generated_image_path: raw} = cover} = book,
+         opts
+       ) do
     %{w: pw, h: ph} = Layout.front_region_local()
     front = ImageOps.fit(raw, pw, ph)
     text = "#{book.title}\n#{book.author}"
 
     with {:ok, box} <- placement(raw, front, text, :cover, opts) do
       region = Layout.front_region_local()
-      # The title is the cover's hero — floor the box so a stingy model answer
-      # can't shrink it into a corner.
-      rect = Layout.denormalize(box.bounding_box, region, min_w_frac: 0.55, min_h_frac: 0.22)
+      # Preserve the established cover floor as the semantic seed; deterministic
+      # quality search may then use a smaller comfortable region or grow safely.
+      seed_rect =
+        Layout.denormalize(box.bounding_box, region, min_w_frac: 0.55, min_h_frac: 0.22)
 
-      front_color = front |> Luminance.pick_for_region(rect) |> Luminance.hex()
-      fill_rgb = ImageOps.softened_average(front)
-      ink = fill_rgb |> Luminance.color_for() |> Luminance.hex()
+      with {:ok, quality} <-
+             optimize_quality(
+               front,
+               %{title: book.title, author: book.author},
+               box,
+               seed_rect,
+               :cover,
+               opts
+             ) do
+        candidate = quality.candidate
+        fill_rgb = ImageOps.softened_average(front)
+        ink = fill_rgb |> Luminance.color_for() |> Luminance.hex()
 
-      html =
-        HtmlRenderer.component_to_html(
-          PageComponents.cover(
-            init_assigns(%{
-              art_uri: ImageOps.to_data_uri(front),
-              rect: rect,
-              align: box.text_align,
-              valign: box.vertical_align,
-              front_color: front_color,
-              title: book.title,
-              author: book.author,
-              tagline: cover.tagline,
-              fill: rgb_css(fill_rgb),
-              ink: ink,
-              character_uri: back_cover_character_uri(book),
-              debug_rect: debug_rect(box.bounding_box, region)
-            })
+        html =
+          HtmlRenderer.component_to_html(
+            PageComponents.cover(
+              init_assigns(%{
+                art_uri: ImageOps.to_data_uri(front),
+                rect: candidate.rect,
+                align: candidate.align,
+                valign: candidate.valign,
+                front_color: Luminance.hex(candidate.ink),
+                title: book.title,
+                author: book.author,
+                tagline: cover.tagline,
+                fill: rgb_css(fill_rgb),
+                ink: ink,
+                character_uri: back_cover_character_uri(book),
+                text_inset: candidate.inset,
+                text_min_font: candidate.min_font,
+                text_max_font: candidate.max_font,
+                text_backing: candidate.treatment,
+                debug_rect: debug_rect(box.bounding_box, region)
+              })
+            )
           )
-        )
 
-      {:ok, html, ImageOps.print_ready_path(raw)}
+        cache = {raw, box, Result.provenance(quality)}
+        {:ok, html, ImageOps.print_ready_path(raw), cache}
+      end
     end
   end
 
@@ -155,17 +194,17 @@ defmodule CircleStory.Books.Composition do
   end
 
   @doc false
-  @spec cache_placement(Path.t(), map()) :: :ok | {:error, term()}
-  def cache_placement(raw_path, box) do
-    File.write(
-      ImageOps.bbox_path(raw_path),
-      Jason.encode!(%{
-        "bounding_box" => box.bounding_box,
-        "text_align" => Atom.to_string(box.text_align),
-        "vertical_align" => Atom.to_string(box.vertical_align),
-        "source" => box |> Map.get(:source, :unknown) |> placement_source() |> Atom.to_string()
-      })
-    )
+  @spec cache_placement(Path.t(), map(), map() | nil) :: :ok | {:error, term()}
+  def cache_placement(raw_path, box, quality \\ nil) do
+    payload = %{
+      "bounding_box" => box.bounding_box,
+      "text_align" => Atom.to_string(box.text_align),
+      "vertical_align" => Atom.to_string(box.vertical_align),
+      "source" => box |> Map.get(:source, :unknown) |> placement_source() |> Atom.to_string()
+    }
+
+    payload = if quality, do: Map.put(payload, "composition_quality", quality), else: payload
+    File.write(ImageOps.bbox_path(raw_path), Jason.encode!(payload))
   end
 
   # Load a cached bbox, or fetch (and cache) via PlaceText. `force_bbox: true` always refetches.
@@ -201,7 +240,8 @@ defmodule CircleStory.Books.Composition do
          bounding_box: bbox,
          text_align: align_atom(Map.get(decoded, "text_align")),
          vertical_align: valign_atom(Map.get(decoded, "vertical_align")),
-         source: decoded |> Map.get("source", "unknown") |> placement_source()
+         source: decoded |> Map.get("source", "unknown") |> placement_source(),
+         composition_quality: decode_quality(Map.get(decoded, "composition_quality"))
        }}
     end
   end
@@ -219,6 +259,84 @@ defmodule CircleStory.Books.Composition do
   defp valign_atom("top"), do: :top
   defp valign_atom("bottom"), do: :bottom
   defp valign_atom(_), do: :middle
+
+  defp optimize_quality(image, content, box, seed_rect, role, opts) do
+    optimizer = Keyword.get(opts, :quality_optimizer, &Quality.optimize/5)
+    quality_opts = Keyword.get(opts, :quality_opts, []) |> Keyword.put(:role, role)
+    optimizer.(image, content, Map.put(box, :mode, role), seed_rect, quality_opts)
+  end
+
+  defp persist_quality({raw, box, provenance}) do
+    # The final render already succeeded. Provenance is best-effort so a sidecar
+    # write failure cannot discard a valid print-ready page.
+    _ = cache_placement(raw, box, provenance)
+    :ok
+  end
+
+  defp decode_quality(nil), do: nil
+
+  defp decode_quality(%{"contract_version" => @quality_contract} = quality) do
+    %{
+      contract_version: @quality_contract,
+      candidate_id: quality["candidate_id"],
+      final_rect: atomize_rect(quality["final_rect"]),
+      adjustment: quality["adjustment"],
+      align: align_atom(quality["align"]),
+      valign: valign_atom(quality["valign"]),
+      font_size: quality["font_size"],
+      line_count: quality["line_count"],
+      lines: Enum.map(quality["lines"] || [], &atomize_rect/1),
+      glyph_bounds: atomize_rect(quality["glyph_bounds"]),
+      effect_bounds: atomize_rect(quality["effect_bounds"]),
+      overflow: quality["overflow"],
+      treatment: quality["treatment"],
+      metrics: decode_quality_metrics(quality["metrics"] || %{}),
+      candidate_count: quality["candidate_count"],
+      rejected_count: quality["rejected_count"],
+      scored_count: quality["scored_count"],
+      attempts: decode_quality_attempts(quality["attempts"]),
+      mask_render_errors: decode_mask_render_errors(quality["mask_render_errors"]),
+      duration_ms: quality["duration_ms"]
+    }
+  end
+
+  defp decode_quality(_), do: nil
+
+  # Untreated and treated attempts stay separate through the sidecar so a backing
+  # decision can still be audited from a page composed in an earlier session.
+  defp decode_quality_attempts(%{} = attempts) do
+    %{
+      untreated: Attempts.decode(:untreated, attempts["untreated"]),
+      treated: Attempts.decode(:treated, attempts["treated"])
+    }
+  end
+
+  defp decode_quality_attempts(_attempts) do
+    %{untreated: Attempts.decode(:untreated, nil), treated: Attempts.decode(:treated, nil)}
+  end
+
+  defp decode_mask_render_errors(errors) when is_list(errors) do
+    Enum.map(errors, fn error ->
+      %{candidate_id: error["candidate_id"], reason: error["reason"]}
+    end)
+  end
+
+  defp decode_mask_render_errors(_errors), do: []
+
+  defp decode_quality_metrics(metrics) do
+    %{
+      worst_tile_p10: metrics["worst_tile_p10"],
+      worst_tile_low_contrast_fraction: metrics["worst_tile_low_contrast_fraction"],
+      worst_line_p05: metrics["worst_line_p05"],
+      edge_density: metrics["edge_density"],
+      soft_total: metrics["soft_total"]
+    }
+  end
+
+  defp atomize_rect(%{"x" => x, "y" => y, "w" => w, "h" => h}),
+    do: %{x: x, y: y, w: w, h: h}
+
+  defp atomize_rect(_), do: nil
 
   defp rgb_css([r, g, b | _]), do: "rgb(#{r},#{g},#{b})"
 
