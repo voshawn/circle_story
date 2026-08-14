@@ -131,6 +131,34 @@ defmodule CircleStory.Books.PageComponentsTest do
         ~s(<div class="fit-inner" style="color:#FFF">Meet Ornella.</div></div></div>)
 
     assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(styled) end
+
+    universal =
+      ~s|<style>* { background:#0008; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-safe"><div class="fit-inner">Text</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(universal) end
+
+    container_target =
+      ~s|<style>.copy-region > div { backdrop-filter:blur(2px); }</style>| <>
+        ~s(<div class="copy-region"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(container_target) end
+
+    legitimate_page_fill =
+      ~s|<style>.page { background:#fff; }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(legitimate_page_fill)
+  end
+
+  test "scoped no-fill assertion inspects descendants but not unrelated page surfaces" do
+    html =
+      ~s|<style>.page { background:#fff; }.copy span { box-shadow:0 0 2px #000; }</style>| <>
+        ~s(<main class="page"><section class="copy"><span>Text</span></section>) <>
+        ~s(<section class="safe"><span>Other text</span></section></main>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(html, ".copy") end
+    assert_no_fill_anywhere(html, ".safe")
   end
 
   test "cover/1 applies the selected font floor to the front panel only" do

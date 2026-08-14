@@ -18,8 +18,6 @@ defmodule CircleStory.BackingLayerAssertions do
     backdrop-filter
   )
 
-  @text_selectors ~w(fit-text fit-safe fit-inner)
-
   @doc """
   Assert the published text box and everything inside it paints no fill.
 
@@ -33,8 +31,9 @@ defmodule CircleStory.BackingLayerAssertions do
     assert Enum.any?(boxes),
            "expected the rendered page to publish text in a .fit-text box"
 
-    refute_inline_fills(html, ".fit-text, .fit-text *")
-    refute_text_stylesheet_fills(html)
+    scope = scoped_elements(html, ".fit-text")
+    refute_inline_fills(scope)
+    refute_stylesheet_fills(html, scope)
     :ok
   end
 
@@ -46,13 +45,14 @@ defmodule CircleStory.BackingLayerAssertions do
   """
   @spec assert_no_fill_anywhere(String.t(), String.t()) :: :ok
   def assert_no_fill_anywhere(html, selector \\ "*") do
-    refute_inline_fills(html, selector)
-    refute_text_stylesheet_fills(html)
+    scope = scoped_elements(html, selector)
+    refute_inline_fills(scope)
+    refute_stylesheet_fills(html, scope)
     :ok
   end
 
-  defp refute_inline_fills(html, selector) do
-    for element <- query(html, selector),
+  defp refute_inline_fills(elements) do
+    for element <- elements,
         style <- LazyHTML.attribute(element, "style"),
         {property, value} <- declarations(style) do
       refute property in @fill_properties,
@@ -60,14 +60,39 @@ defmodule CircleStory.BackingLayerAssertions do
     end
   end
 
-  defp refute_text_stylesheet_fills(html) do
-    for style <- query(html, "style"),
+  defp refute_stylesheet_fills(html, scope) do
+    document = LazyHTML.from_fragment(html)
+
+    for style <- LazyHTML.query(document, "style"),
         {selector, declarations} <- rules(LazyHTML.text(style)),
-        targets_text?(selector),
-        {property, value} <- declarations do
-      refute property in @fill_properties,
-             "stylesheet rule #{selector} paints #{property}:#{value} behind composed text"
+        {property, value} <- declarations,
+        property in @fill_properties,
+        stylesheet_rule_reaches_scope?(document, selector, scope) do
+      flunk("stylesheet rule #{selector} paints #{property}:#{value} behind composed text")
     end
+  end
+
+  defp scoped_elements(html, selector) do
+    document = LazyHTML.from_fragment(html)
+
+    document
+    |> LazyHTML.query(selector)
+    |> Enum.flat_map(fn root -> [root | Enum.to_list(LazyHTML.query(root, "*"))] end)
+    |> Enum.uniq()
+  end
+
+  defp stylesheet_rule_reaches_scope?(document, selector, scope) do
+    scope_html = MapSet.new(scope, &LazyHTML.to_html/1)
+
+    selector
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.any?(fn individual_selector ->
+      Enum.any?(LazyHTML.query(document, individual_selector), fn element ->
+        MapSet.member?(scope_html, LazyHTML.to_html(element))
+      end)
+    end)
   end
 
   defp query(html, selector), do: html |> LazyHTML.from_fragment() |> LazyHTML.query(selector)
@@ -75,10 +100,6 @@ defmodule CircleStory.BackingLayerAssertions do
   defp describe(element) do
     classes = element |> LazyHTML.attribute("class") |> List.first() || "element"
     "<#{classes}>"
-  end
-
-  defp targets_text?(selector) do
-    Enum.any?(@text_selectors, &String.contains?(selector, &1))
   end
 
   defp rules(css) do
