@@ -197,6 +197,62 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert_transparent_text_box(commented_out)
   end
 
+  test "a rule keeps its own fill even when it also nests another block" do
+    own_fill_beside_a_nested_rule =
+      ~s|<style>.fit-text { background:#fff; & div { color:red; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(own_fill_beside_a_nested_rule)
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_no_fill_anywhere(own_fill_beside_a_nested_rule)
+    end
+
+    fill_conditioned_inside_the_rule =
+      ~s|<style>.fit-inner { color:#000; @media print { background:#fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(fill_conditioned_inside_the_rule)
+    end
+
+    nested_fill_on_a_page_surface =
+      ~s|<style>.page { color:#000; @media print { background:#fff; } }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(nested_fill_on_a_page_surface)
+  end
+
+  test "a statement at-rule does not swallow the selector that follows it" do
+    charset_before_the_fill =
+      ~s|<style>@charset "utf-8"; .fit-text { background:#fff; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(charset_before_the_fill)
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_no_fill_anywhere(charset_before_the_fill)
+    end
+
+    layer_before_the_fill =
+      ~s|<style>@layer base, page; .fit-inner { box-shadow:0 0 0 40px #fff; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(layer_before_the_fill)
+    end
+
+    import_before_a_page_fill =
+      ~s|<style>@import url(print.css); .page { background:#fff; }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(import_before_a_page_fill)
+  end
+
   test "scoped no-fill assertion inspects descendants but not unrelated page surfaces" do
     html =
       ~s|<style>.page { background:#fff; }.copy span { box-shadow:0 0 2px #000; }</style>| <>

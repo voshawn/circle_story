@@ -97,26 +97,51 @@ defmodule CircleStory.BackingLayerAssertions do
     "<#{classes}>"
   end
 
-  # Blocks are read with brace tracking rather than a naive split, so a rule
-  # nested inside an at-rule (`@media print { .fit-text { background:#fff } }`)
-  # is still parsed as a selector with declarations. An at-rule's own
-  # declarations describe the page or a font, not an element in scope, so only
-  # its nested rules are collected.
-  defp rules(css), do: css |> strip_comments() |> parse_rules("", [])
+  # A block body holds declarations and nested blocks at the same time, so each
+  # level is split into both rather than assumed to be one or the other. Loose
+  # declarations belong to the selector that owns the level they appear in: a
+  # nested at-rule keeps its enclosing selector as the owner, while an at-rule
+  # at the top level has none, which is what lets `@page`/`@font-face` fills
+  # through without letting `@media` hide a fill on an element.
+  defp rules(css), do: css |> strip_comments() |> parse_block(nil)
 
   defp strip_comments(css), do: String.replace(css, ~r|/\*.*?\*/|s, " ")
 
-  defp parse_rules("", _prelude, rules), do: Enum.reverse(rules)
+  defp parse_block(css, owner) do
+    {loose, blocks} = split_block(css, "", "", [])
 
-  defp parse_rules(<<"{", rest::binary>>, prelude, rules) do
-    {body, remainder} = take_block(rest, 0, "")
-    parse_rules(remainder, "", collect_rule(String.trim(prelude), body, rules))
+    own_rule(owner, loose) ++
+      Enum.flat_map(blocks, fn {selector, body} -> nested_rules(selector, body, owner) end)
   end
 
-  defp parse_rules(<<"}", rest::binary>>, _prelude, rules), do: parse_rules(rest, "", rules)
+  defp own_rule(nil, _loose), do: []
 
-  defp parse_rules(<<character::utf8, rest::binary>>, prelude, rules),
-    do: parse_rules(rest, prelude <> <<character::utf8>>, rules)
+  defp own_rule(owner, loose) do
+    case declarations(loose) do
+      [] -> []
+      declarations -> [{owner, declarations}]
+    end
+  end
+
+  defp nested_rules("", body, owner), do: parse_block(body, owner)
+  defp nested_rules("@" <> _at_rule, body, owner), do: parse_block(body, owner)
+  defp nested_rules(selector, body, _owner), do: parse_block(body, selector)
+
+  defp split_block("", loose, buffer, blocks), do: {loose <> buffer, Enum.reverse(blocks)}
+
+  defp split_block(<<";", rest::binary>>, loose, buffer, blocks),
+    do: split_block(rest, loose <> buffer <> ";", "", blocks)
+
+  defp split_block(<<"{", rest::binary>>, loose, buffer, blocks) do
+    {body, remainder} = take_block(rest, 0, "")
+    split_block(remainder, loose, "", [{String.trim(buffer), body} | blocks])
+  end
+
+  defp split_block(<<"}", rest::binary>>, loose, _buffer, blocks),
+    do: split_block(rest, loose, "", blocks)
+
+  defp split_block(<<character::utf8, rest::binary>>, loose, buffer, blocks),
+    do: split_block(rest, loose, buffer <> <<character::utf8>>, blocks)
 
   defp take_block("", _depth, body), do: {body, ""}
   defp take_block(<<"}", rest::binary>>, 0, body), do: {body, rest}
@@ -129,15 +154,6 @@ defmodule CircleStory.BackingLayerAssertions do
 
   defp take_block(<<character::utf8, rest::binary>>, depth, body),
     do: take_block(rest, depth, body <> <<character::utf8>>)
-
-  defp collect_rule(selector, body, rules) do
-    cond do
-      String.contains?(body, "{") -> Enum.reverse(parse_rules(body, "", [])) ++ rules
-      String.starts_with?(selector, "@") -> rules
-      selector == "" -> rules
-      true -> [{selector, declarations(body)} | rules]
-    end
-  end
 
   defp declarations(css) do
     css
