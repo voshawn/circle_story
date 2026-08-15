@@ -18,10 +18,14 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   alias ReqLLM.Message.ContentPart
 
-  # Gemini 3.1 Flash-Lite: cost-efficient, low-latency, supports image input. On
+  # Gemini 3.5 Flash-Lite: supports image input and structured JSON output. On
   # any failure `run/2` returns `default_box/1`, so a bad model id degrades to a
   # fixed box rather than crashing — watch the Logger warning to catch it.
-  @model "google:gemini-3.1-flash-lite"
+  #
+  # This id is absent from the bundled llm_db catalog snapshot, so ReqLLM logs
+  # "Using unverified model: google:gemini-3.5-flash-lite" and passes it through
+  # unchanged. That line is expected, not a failure signal.
+  @model "google:gemini-3.5-flash-lite"
 
   @object_schema [
     bounding_box: [type: {:list, :integer}, required: true],
