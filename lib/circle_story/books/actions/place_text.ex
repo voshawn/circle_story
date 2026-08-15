@@ -18,10 +18,10 @@ defmodule CircleStory.Books.Actions.PlaceText do
 
   alias ReqLLM.Message.ContentPart
 
-  # Gemini 3.1 Flash-Lite: cost-efficient, low-latency, supports image input. On
-  # any failure `run/2` returns `default_box/1`, so a bad model id degrades to a
+  # Gemini 3.7 Flash: supports image input and structured JSON output. On any
+  # failure `run/2` returns `default_box/1`, so a bad model id degrades to a
   # fixed box rather than crashing — watch the Logger warning to catch it.
-  @model "google:gemini-3.1-flash-lite"
+  @model "google:gemini-3.7-flash"
 
   @object_schema [
     bounding_box: [type: {:list, :integer}, required: true],

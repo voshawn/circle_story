@@ -14,6 +14,12 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
     "vertical_align" => "top"
   }
 
+  describe "model/0" do
+    test "reports the requested Gemini 3.7 Flash placement model" do
+      assert PlaceText.model() == "google:gemini-3.7-flash"
+    end
+  end
+
   describe "parse_result/1" do
     test "reads a valid string-keyed map" do
       assert {:ok, %{bounding_box: [150, 680, 480, 950], text_align: :right}} =
@@ -71,6 +77,28 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
 
       assert result.source == :model
       assert result.bounding_box == [150, 680, 480, 950]
+    end
+
+    test "targets gemini-3.7-flash with structured output, image input, and medium thinking" do
+      opts = stub_google(Jason.encode!(@valid_object), report_to: self())
+
+      assert {:ok, %{source: :model}} =
+               PlaceText.run(%{image_png: "fake-png", text: "story", mode: :inner}, %{}, opts)
+
+      assert_receive {:google_request, path, body}
+
+      assert String.ends_with?(path, "/models/gemini-3.7-flash:generateContent")
+      refute path =~ "flash-lite"
+
+      generation_config = body["generationConfig"]
+      assert generation_config["responseMimeType"] == "application/json"
+      assert generation_config["thinkingConfig"]["thinkingLevel"] == "medium"
+
+      parts = body["contents"] |> List.last() |> Map.fetch!("parts")
+
+      assert Enum.any?(parts, fn part ->
+               get_in(part, ["inline_data", "mime_type"]) == "image/png"
+             end)
     end
 
     test "falls back with provenance and a safe diagnostic for unusable structured output" do
@@ -161,8 +189,12 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
     }
   end
 
-  defp stub_google(text) do
+  defp stub_google(text, opts \\ []) do
+    report_to = Keyword.get(opts, :report_to)
+
     plug = fn conn ->
+      conn = report_request(conn, report_to)
+
       body =
         Jason.encode!(%{
           "candidates" => [
@@ -187,5 +219,13 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
     end
 
     [api_key: "test-key", max_retries: 0, req_http_options: [plug: plug]]
+  end
+
+  defp report_request(conn, nil), do: conn
+
+  defp report_request(conn, pid) do
+    {:ok, raw, conn} = Plug.Conn.read_body(conn)
+    send(pid, {:google_request, conn.request_path, Jason.decode!(raw)})
+    conn
   end
 end
