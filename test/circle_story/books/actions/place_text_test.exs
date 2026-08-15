@@ -15,8 +15,8 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
   }
 
   describe "model/0" do
-    test "reports the requested Gemini 3.7 Flash placement model" do
-      assert PlaceText.model() == "google:gemini-3.7-flash"
+    test "reports the requested Gemini 3.5 Flash-Lite placement model" do
+      assert PlaceText.model() == "google:gemini-3.5-flash-lite"
     end
   end
 
@@ -79,7 +79,7 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
       assert result.bounding_box == [150, 680, 480, 950]
     end
 
-    test "targets gemini-3.7-flash with structured output, image input, and medium thinking" do
+    test "targets gemini-3.5-flash-lite with structured output, image input, and medium thinking" do
       opts = stub_google(Jason.encode!(@valid_object), report_to: self())
 
       assert {:ok, %{source: :model}} =
@@ -87,8 +87,8 @@ defmodule CircleStory.Books.Actions.PlaceTextTest do
 
       assert_receive {:google_request, path, body}
 
-      assert String.ends_with?(path, "/models/gemini-3.7-flash:generateContent")
-      refute path =~ "flash-lite"
+      assert String.ends_with?(path, "/models/gemini-3.5-flash-lite:generateContent")
+      refute path =~ "gemini-3.7-flash"
 
       generation_config = body["generationConfig"]
       assert generation_config["responseMimeType"] == "application/json"
