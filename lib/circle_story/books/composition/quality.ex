@@ -4,8 +4,10 @@ defmodule CircleStory.Books.Composition.Quality do
 
   A model placement remains a semantic seed. Explicit immutable steps build a
   local safety map, expand a bounded canvas, search browser-fitted candidates,
-  apply hard glyph-level gates, and rank only passing candidates. This module
-  performs no provider calls.
+  apply non-negotiable geometry gates, and prefer candidates that pass every
+  readability threshold. If none do, measured transparent candidates remain
+  eligible for deterministic readability ranking. This module performs no
+  provider calls.
   """
 
   alias CircleStory.Books.Composition.Quality.{
@@ -33,7 +35,7 @@ defmodule CircleStory.Books.Composition.Quality do
 
   @type step :: {module(), atom()}
 
-  @doc "Optimize final text geometry and treatment with no model/provider calls."
+  @doc "Optimize final text geometry and transparent black/white ink with no provider calls."
   @spec optimize(Vix.Vips.Image.t(), map(), map(), map(), keyword()) ::
           {:ok, Result.t()} | {:error, term()}
   def optimize(image, content, placement, seed_rect, opts \\ []) do
@@ -97,7 +99,7 @@ defmodule CircleStory.Books.Composition.Quality do
     if rendered == [] do
       {:error, {:composition_mask_render_failed, Enum.reverse(errors)}}
     else
-      untreated =
+      evaluated =
         Enum.flat_map(rendered, fn {candidate, mask} ->
           preferred = candidate.metrics.preferred_ink
           inks = [preferred, opposite(preferred)]
@@ -107,31 +109,16 @@ defmodule CircleStory.Books.Composition.Quality do
           end)
         end)
 
-      treated =
-        if Enum.any?(untreated, &(&1.hard_rejections == [])) do
-          []
-        else
-          backing_variants(rendered, context)
-        end
-
       evidence = Map.put(context.evidence, :mask_render_errors, Enum.reverse(errors))
 
-      {:ok,
-       %{
-         context
-         | untreated: untreated,
-           treated: treated,
-           evaluated: untreated ++ treated,
-           evidence: evidence
-       }}
+      {:ok, %{context | evaluated: evaluated, evidence: evidence}}
     end
   end
 
   @doc false
   @spec select_candidate(Context.t()) :: {:ok, Result.t()} | {:error, term()}
   def select_candidate(%Context{} = context) do
-    untreated = Attempts.summarize(:untreated, context.untreated)
-    treated = Attempts.summarize(:treated, context.treated)
+    transparent = Attempts.summarize(:transparent, context.evaluated)
 
     with {:ok, selected} <- Selection.choose(context.evaluated, context.seed_rect, context.policy) do
       {:ok,
@@ -139,22 +126,21 @@ defmodule CircleStory.Books.Composition.Quality do
          candidate: selected,
          contract_version: context.policy.contract_version,
          candidate_count: length(context.candidates),
-         rejected_count: untreated.rejected + treated.rejected,
-         scored_count: untreated.scanned + treated.scanned,
-         untreated: untreated,
-         treated: treated,
+         rejected_count: transparent.rejected,
+         scored_count: transparent.scanned,
+         transparent: transparent,
          mask_render_errors: Map.get(context.evidence, :mask_render_errors, [])
        }}
     else
-      {:error, :no_candidate_passed_hard_gates} ->
+      {:error, :no_geometry_safe_candidate} ->
         {:error,
          {:composition_quality_failed,
           %{
             role: context.policy.role,
+            reason: :no_geometry_safe_transparent_candidate,
             candidates_tried: length(context.candidates),
-            variants_scored: untreated.scanned + treated.scanned,
-            untreated: untreated,
-            treated: treated,
+            variants_scored: transparent.scanned,
+            transparent: transparent,
             mask_render_errors: Map.get(context.evidence, :mask_render_errors, [])
           }}}
     end
@@ -168,38 +154,6 @@ defmodule CircleStory.Books.Composition.Quality do
       end
     end)
     |> then(fn {rendered, errors} -> {Enum.reverse(rendered), errors} end)
-  end
-
-  # Each finalist/ink pair walks the bounded opacity list weakest-to-strongest
-  # on its own and stops at the first treatment that clears every hard gate, so
-  # a pair the lightest backing fixes never pays for the stronger ones while a
-  # pair that only a stronger backing can fix is still scored. Every finalist
-  # and both inks are retained, and every scanned attempt — including the weaker
-  # opacities rejected on the way — is kept so the evidence accounts for the
-  # total work. `Selection` still refuses to let a stronger passing treatment
-  # outrank a weaker passing one.
-  defp backing_variants(rendered, context) do
-    pairs =
-      for {candidate, mask} <- rendered,
-          {ink, color} <- [black: :white, white: :black],
-          do: {candidate, mask, ink, color}
-
-    context.policy.backing_opacities
-    |> Enum.reduce_while({pairs, []}, fn opacity, {unresolved, attempted} ->
-      scored =
-        Enum.map(unresolved, fn {candidate, mask, ink, color} = pair ->
-          treatment = %{type: :backing, color: color, opacity: opacity}
-          {pair, Scorer.score(context.image, candidate, mask, context.policy, ink, treatment)}
-        end)
-
-      attempted = attempted ++ Enum.map(scored, &elem(&1, 1))
-
-      case for({pair, variant} <- scored, variant.hard_rejections != [], do: pair) do
-        [] -> {:halt, {[], attempted}}
-        remaining -> {:cont, {remaining, attempted}}
-      end
-    end)
-    |> elem(1)
   end
 
   defp mode_to_role(placement, opts) do

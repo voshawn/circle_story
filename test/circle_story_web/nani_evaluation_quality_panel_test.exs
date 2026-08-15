@@ -5,45 +5,45 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
   alias CircleStory.Books.Composition.Quality.Attempts
   alias CircleStoryWeb.NaniEvaluationLive
 
-  test "the panel reports untreated ink and backing attempts as separate evidence" do
+  test "the panel explicitly identifies a below-threshold transparent fallback" do
     html =
       render_component(&NaniEvaluationLive.composition_quality/1, %{
         id: "composition-quality-inner-1",
         quality:
           quality(
-            treatment: "white_backing_44",
-            scored_count: 16,
-            rejected_count: 15,
+            ink: :white,
+            selection_outcome: "below_threshold_transparent_fallback",
+            readability_thresholds_met: false,
+            readability_rejections: ["local_contrast_percentile"],
+            scored_count: 8,
+            rejected_count: 8,
             attempts: %{
-              untreated: %{
-                kind: :untreated,
+              transparent: %{
+                kind: :transparent,
                 scanned: 8,
                 passed: 0,
                 rejected: 8,
-                rejection_reasons: %{"local_contrast_percentile" => 6, "edge_density" => 2}
-              },
-              treated: %{
-                kind: :treated,
-                scanned: 8,
-                passed: 1,
-                rejected: 7,
-                rejection_reasons: %{"local_contrast_fraction" => 7}
+                rejection_reasons: %{
+                  "local_contrast_percentile" => 6,
+                  "local_contrast_fraction" => 2
+                }
               }
             }
           )
       })
 
-    assert html =~ "white_backing_44"
-    assert html =~ "Untreated ink: 0/8 passed"
+    assert html =~ "transparent white text"
+    assert html =~ "Below preferred readability thresholds"
+    assert html =~ "best geometry-safe transparent result published"
+    assert html =~ "Selected threshold misses: local_contrast_percentile"
+    assert html =~ "Transparent black/white attempts: 0/8 met thresholds"
     assert html =~ "local_contrast_percentile ×6"
-    assert html =~ "edge_density ×2"
-    assert html =~ "Backing attempts: 1/8 passed"
-    assert html =~ "local_contrast_fraction ×7"
-    assert html =~ "16 scans"
-    assert html =~ "15 rejected variants"
+    assert html =~ "local_contrast_fraction ×2"
+    assert html =~ "8 scans"
+    assert html =~ "8 variants missed preferred gates"
   end
 
-  test "a page that needed no backing says so instead of implying an untried treatment" do
+  test "the panel identifies a preferred transparent threshold pass" do
     html =
       render_component(&NaniEvaluationLive.composition_quality/1, %{
         id: "composition-quality-inner-2",
@@ -52,27 +52,59 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
             scored_count: 4,
             rejected_count: 3,
             attempts: %{
-              untreated: %{
-                kind: :untreated,
+              transparent: %{
+                kind: :transparent,
                 scanned: 4,
                 passed: 1,
                 rejected: 3,
                 rejection_reasons: %{"local_contrast_percentile" => 3}
-              },
-              treated: %{
-                kind: :treated,
-                scanned: 0,
-                passed: 0,
-                rejected: 0,
-                rejection_reasons: %{}
               }
             }
           )
       })
 
-    assert html =~ "Untreated ink: 1/4 passed"
-    assert html =~ "Backing attempts: none scanned"
+    assert html =~ "transparent black text"
+    assert html =~ "Preferred readability thresholds met"
+    assert html =~ "Transparent black/white attempts: 1/4 met thresholds"
+    assert html =~ "bg-emerald-50"
+    refute html =~ "Selected threshold misses"
     refute html =~ "Mask render failures"
+  end
+
+  test "an unrecorded selection outcome is never presented as a threshold pass" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-6",
+        quality:
+          quality(
+            ink: nil,
+            selection_outcome: "unrecorded",
+            readability_thresholds_met: false,
+            readability_rejections: []
+          )
+      })
+
+    refute html =~ "Preferred readability thresholds met"
+    assert html =~ "Selection outcome not recorded"
+    assert html =~ "treat as below preferred readability thresholds"
+    assert html =~ "Selected threshold misses: none recorded"
+    assert html =~ "ink not recorded"
+    refute html =~ "transparent black text"
+    assert html =~ "bg-amber-50"
+    refute html =~ "bg-emerald-50"
+  end
+
+  test "the panel reports glyph geometry only, with no second treatment rectangle" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-5",
+        quality: quality(glyph_bounds: %{x: 188, y: 208, w: 600, h: 220})
+      })
+
+    assert html =~ "Glyphs x=188, y=208, 600×220px"
+    refute html =~ "effect"
+    refute html =~ "backing"
+    refute html =~ "treatment"
   end
 
   test "renderer faults that dropped a finalist mask are surfaced" do
@@ -124,23 +156,18 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
       role: :inner,
       candidates_tried: 4,
       variants_scored: 6,
-      untreated: %Attempts{
-        kind: :untreated,
-        scanned: 4,
+      reason: :no_geometry_safe_transparent_candidate,
+      transparent: %Attempts{
+        kind: :transparent,
+        scanned: 6,
         passed: 0,
-        rejected: 4,
+        rejected: 6,
         rejection_reasons: %{
           {:image_binary_failed, "VipsJpeg: out of order read over #{document}"} => 1,
           {:image_binary_failed, :vips_closed} => 1,
-          :local_contrast_percentile => 2
+          :local_contrast_percentile => 2,
+          :glyph_inset => 2
         }
-      },
-      treated: %Attempts{
-        kind: :treated,
-        scanned: 2,
-        passed: 0,
-        rejected: 2,
-        rejection_reasons: %{:local_contrast_fraction => 2}
       },
       mask_render_errors: [
         {"candidate-2", {:renderer_exception, ArgumentError, "raised over #{document}"}}
@@ -149,16 +176,41 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
 
     entry = NaniEvaluationLive.error_entry({:composition_quality_failed, details})
 
-    assert entry.message =~ "0/4 passed"
+    assert entry.message =~ "No geometry-safe transparent black/white text candidate"
+    assert entry.message =~ "0/6 met thresholds"
     assert entry.message =~ "image_binary_failed ×1"
     assert entry.message =~ "image_binary_failed:vips_closed ×1"
     assert entry.message =~ "local_contrast_percentile ×2"
-    assert entry.message =~ "0/2 passed"
-    assert entry.message =~ "local_contrast_fraction ×2"
+    assert entry.message =~ "glyph_inset ×2"
     assert entry.evidence == "renderer_exception:ArgumentError ×1"
+    assert entry.evidence_label == "Composition diagnostics"
     refute entry.message =~ "VipsJpeg"
     refute entry.message =~ "<html"
     refute entry.evidence =~ "<html"
+  end
+
+  test "a quality failure without renderer faults never repeats its scan reasons" do
+    details = %{
+      role: :inner,
+      candidates_tried: 4,
+      variants_scored: 6,
+      reason: :no_geometry_safe_transparent_candidate,
+      transparent: %Attempts{
+        kind: :transparent,
+        scanned: 6,
+        passed: 0,
+        rejected: 6,
+        rejection_reasons: %{:local_contrast_percentile => 4, :glyph_inset => 2}
+      },
+      mask_render_errors: []
+    }
+
+    entry = NaniEvaluationLive.error_entry({:composition_quality_failed, details})
+
+    assert entry.message =~ "local_contrast_percentile ×4"
+    assert entry.message =~ "glyph_inset ×2"
+    assert entry.evidence == nil
+    assert entry.evidence_label == nil
   end
 
   test "failures with no renderer diagnostics carry no evidence line" do
@@ -292,15 +344,38 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
         quality: Map.drop(quality(), [:attempts, :scored_count, :mask_render_errors])
       })
 
-    assert html =~ "Untreated ink: no recorded evidence"
+    assert html =~ "Transparent black/white attempts: no recorded evidence"
     assert html =~ "— scans"
+  end
+
+  test "whole-number metrics from a sidecar render instead of crashing the page" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-6",
+        quality:
+          quality(
+            font_size: 61,
+            metrics: %{
+              worst_tile_p10: 6,
+              worst_tile_low_contrast_fraction: 0,
+              worst_line_p05: 7,
+              edge_density: 1,
+              soft_total: 10
+            }
+          )
+      })
+
+    assert html =~ "Font 61.00px"
+    assert html =~ "Worst tile p10 6.00:1"
+    assert html =~ "below 3:1 0.0%"
+    assert html =~ "edge 100.0%"
   end
 
   # The decoded shape `Composition.cached_placement/1` hands the evaluation page.
   defp quality(overrides \\ []) do
     Map.merge(
       %{
-        contract_version: "composition-quality-v1",
+        contract_version: "composition-quality-v2",
         candidate_id: "candidate-7",
         final_rect: %{x: 140, y: 160, w: 700, h: 320},
         adjustment: "translate_right",
@@ -309,9 +384,13 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
         font_size: 61.25,
         line_count: 4,
         glyph_bounds: %{x: 188, y: 208, w: 600, h: 220},
-        effect_bounds: %{x: 140, y: 160, w: 700, h: 320},
+        effect_bounds: %{x: 188, y: 208, w: 600, h: 220},
         overflow: false,
+        ink: :black,
         treatment: "none",
+        selection_outcome: "threshold_pass",
+        readability_thresholds_met: true,
+        readability_rejections: [],
         metrics: %{
           worst_tile_p10: 6.2,
           worst_tile_low_contrast_fraction: 0.01,
@@ -323,14 +402,13 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
         rejected_count: 5,
         scored_count: 12,
         attempts: %{
-          untreated: %{
-            kind: :untreated,
+          transparent: %{
+            kind: :transparent,
             scanned: 12,
             passed: 1,
             rejected: 11,
             rejection_reasons: %{}
-          },
-          treated: %{kind: :treated, scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}}
+          }
         },
         mask_render_errors: [],
         duration_ms: 8412.0

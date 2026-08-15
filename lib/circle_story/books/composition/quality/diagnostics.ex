@@ -5,10 +5,11 @@ defmodule CircleStory.Books.Composition.Quality.Diagnostics do
   Faults arrive as opaque third-party terms: a ChromicPDF exit reason carries
   the whole `GenServer.call/3` argument list, which includes the page document,
   and an exception message can quote whatever it was raised over. Neither may be
-  persisted into the placement sidecar or rendered in the development UI, and
-  neither has a bounded size. Every reason is therefore reduced here to a class
-  named only by the atom tags that identify the fault; any other payload
-  contributes its type and nothing else.
+  persisted into the placement sidecar or shown as composition-quality evidence
+  in the development UI, and neither has a bounded size. Every reason reaching
+  those paths is therefore reduced here to a class named only by the atom tags
+  that identify the fault; any other payload contributes its type and nothing
+  else.
   """
 
   @max_segments 4

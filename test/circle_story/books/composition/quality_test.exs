@@ -4,7 +4,6 @@ defmodule CircleStory.Books.Composition.QualityTest do
   alias CircleStory.Books.Composition.Quality
 
   alias CircleStory.Books.Composition.Quality.{
-    Attempts,
     BrowserRenderer,
     Candidate,
     Policy,
@@ -69,7 +68,7 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert {:ok, mask} = BrowserRenderer.mask(unsafe, content, :inner)
     scored_unsafe = Scorer.score(art, unsafe, mask, policy, :black)
 
-    assert Enum.any?(scored_unsafe.hard_rejections, fn reason ->
+    assert Enum.any?(scored_unsafe.readability_rejections, fn reason ->
              reason in [:local_contrast_percentile, :local_contrast_fraction]
            end)
 
@@ -77,8 +76,9 @@ defmodule CircleStory.Books.Composition.QualityTest do
     selected = result.candidate
 
     assert selected.hard_rejections == []
+    assert selected.readability_rejections == []
+    assert selected.selection_outcome == :threshold_pass
     assert selected.ink == :black
-    assert selected.treatment == nil
     assert selected.metrics.worst_tile_p10 >= policy.hard_contrast
     assert selected.metrics.worst_tile_low_contrast_fraction <= policy.max_low_contrast_fraction
     assert selected.origin != :seed or selected.align != :left
@@ -112,7 +112,7 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert result.candidate.origin != :seed or result.candidate.align != :left
   end
 
-  test "busy mixed art uses the first deterministic backing that passes" do
+  test "busy mixed art publishes the best transparent fallback with contrast provenance" do
     art = checkerboard(800, 400, 24)
     policy = test_policy(candidate_transforms: [:seed], finalist_limit: 4)
     seed = %{x: 480, y: 40, w: 280, h: 260}
@@ -122,54 +122,33 @@ defmodule CircleStory.Books.Composition.QualityTest do
                policy: policy
              )
 
-    assert %{type: :backing, opacity: 0.44} = result.candidate.treatment
-    assert result.candidate.hard_rejections == []
-    assert result.candidate.metrics.worst_tile_p10 >= policy.hard_contrast
-
-    pairs = 2 * policy.finalist_limit
+    selected = result.candidate
+    assert selected.ink in [:black, :white]
+    assert selected.hard_rejections == []
+    assert selected.readability_rejections != []
+    assert selected.selection_outcome == :below_threshold_transparent_fallback
     assert result.scored_count > 0
-    assert result.scored_count <= pairs * (1 + length(policy.backing_opacities))
-
-    # The untreated rejection is exactly the evidence that justifies the backing,
-    # so it must survive the treated pass instead of being replaced by it.
-    assert result.untreated.scanned > 0
-    assert result.untreated.passed == 0
-    assert result.untreated.rejection_reasons != %{}
-    assert result.treated.scanned > 0
-    assert result.treated.passed > 0
-    assert result.scored_count == result.untreated.scanned + result.treated.scanned
-    assert result.rejected_count == result.untreated.rejected + result.treated.rejected
+    assert result.scored_count <= 2 * policy.finalist_limit
+    assert result.transparent.scanned == result.scored_count
+    assert result.transparent.passed == 0
+    assert result.transparent.rejection_reasons != %{}
+    assert result.rejected_count == result.transparent.rejected
 
     provenance = Result.provenance(result)
-    assert provenance.scored_count == result.scored_count
-    assert provenance.attempts.untreated.scanned == result.untreated.scanned
-    assert provenance.attempts.untreated.passed == 0
-    assert provenance.attempts.untreated.rejection_reasons != %{}
-    assert provenance.attempts.treated.passed == result.treated.passed
-    assert {:ok, _encoded} = Jason.encode(provenance)
+    assert provenance.treatment == "none"
+    assert provenance.selection_outcome == "below_threshold_transparent_fallback"
+    refute provenance.readability_thresholds_met
+    assert provenance.readability_rejections != []
+    assert is_number(provenance.metrics.worst_tile_p10)
+    assert is_number(provenance.metrics.worst_tile_low_contrast_fraction)
+    assert provenance.attempts.transparent.scanned == result.transparent.scanned
+    assert provenance.attempts.transparent.passed == 0
+    assert provenance.attempts.transparent.rejection_reasons != %{}
+    assert {:ok, encoded} = Jason.encode(provenance)
+    refute encoded =~ "backing"
   end
 
-  test "a total failure keeps the untreated rejection reasons that explain it" do
-    art = checkerboard(800, 400, 24)
-
-    policy =
-      test_policy(candidate_transforms: [:seed], finalist_limit: 2, backing_opacities: [])
-
-    seed = %{x: 480, y: 40, w: 280, h: 260}
-
-    assert {:error, {:composition_quality_failed, details}} =
-             Quality.optimize(art, %{text: @story}, placement(:center, :middle), seed,
-               policy: policy
-             )
-
-    assert details.untreated.scanned > 0
-    assert details.untreated.passed == 0
-    assert details.untreated.rejection_reasons != %{}
-    assert details.treated == %Attempts{kind: :treated}
-    assert details.variants_scored == details.untreated.scanned
-  end
-
-  test "an untreated pass never scans any backing opacity" do
+  test "a transparent threshold pass is selected without any additional scan phase" do
     art = Image.new!(800, 400, color: :white)
     policy = test_policy(candidate_transforms: [:seed], finalist_limit: 2)
     seed = %{x: 480, y: 40, w: 280, h: 260}
@@ -179,11 +158,11 @@ defmodule CircleStory.Books.Composition.QualityTest do
                policy: policy
              )
 
-    assert result.candidate.treatment == nil
+    assert result.candidate.selection_outcome == :threshold_pass
+    assert result.candidate.readability_rejections == []
     assert result.scored_count <= 2 * policy.finalist_limit
-    assert result.untreated.passed > 0
-    assert result.treated == %Attempts{kind: :treated}
-    assert result.scored_count == result.untreated.scanned
+    assert result.transparent.passed > 0
+    assert result.scored_count == result.transparent.scanned
   end
 
   test "long unbreakable text returns structured overflow at the role minimum" do

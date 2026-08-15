@@ -1,10 +1,10 @@
 defmodule CircleStory.Books.Composition.Quality.Attempts do
   @moduledoc """
-  Scan evidence for one kind of attempt: untreated ink, or treated backing.
+  Privacy-safe scan evidence for transparent black/white text candidates.
 
-  Untreated and treated attempts answer different questions — why plain ink was
-  refused, and what the bounded backing search then cost — so their counts and
-  rejection reasons are summarized separately and never merged.
+  A variant meets the preferred thresholds only when both its non-negotiable
+  geometry/render checks and its readability checks pass. Below-threshold
+  variants remain auditable ranking evidence for the transparent fallback.
   """
 
   alias CircleStory.Books.Composition.Quality.{Candidate, Diagnostics}
@@ -12,7 +12,7 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
   @enforce_keys [:kind]
   defstruct @enforce_keys ++ [scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}]
 
-  @type kind :: :untreated | :treated
+  @type kind :: :transparent
   @type t :: %__MODULE__{
           kind: kind(),
           scanned: non_neg_integer(),
@@ -21,17 +21,17 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
           rejection_reasons: %{optional(term()) => pos_integer()}
         }
 
-  @doc "Summarize every scored variant of one attempt kind."
+  @doc "Summarize every scored transparent black/white variant."
   @spec summarize(kind(), [Candidate.t()]) :: t()
-  def summarize(kind, variants) when kind in [:untreated, :treated] do
-    {passing, rejected} = Enum.split_with(variants, &(&1.hard_rejections == []))
+  def summarize(:transparent, variants) do
+    {passing, rejected} = Enum.split_with(variants, &Candidate.preferred?/1)
 
     %__MODULE__{
-      kind: kind,
+      kind: :transparent,
       scanned: length(variants),
       passed: length(passing),
       rejected: length(rejected),
-      rejection_reasons: rejected |> Enum.flat_map(& &1.hard_rejections) |> Enum.frequencies()
+      rejection_reasons: rejected |> Enum.flat_map(&rejections/1) |> Enum.frequencies()
     }
   end
 
@@ -48,9 +48,9 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
 
   @doc "Decode persisted attempt evidence; reasons stay strings once serialized."
   @spec decode(kind(), term()) :: map()
-  def decode(kind, %{} = attempts) do
+  def decode(:transparent, %{} = attempts) do
     %{
-      kind: kind,
+      kind: :transparent,
       scanned: attempts["scanned"] || 0,
       passed: attempts["passed"] || 0,
       rejected: attempts["rejected"] || 0,
@@ -58,8 +58,11 @@ defmodule CircleStory.Books.Composition.Quality.Attempts do
     }
   end
 
-  def decode(kind, _attempts),
-    do: %{kind: kind, scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}}
+  def decode(:transparent, _attempts),
+    do: %{kind: :transparent, scanned: 0, passed: 0, rejected: 0, rejection_reasons: %{}}
+
+  defp rejections(candidate),
+    do: candidate.hard_rejections ++ candidate.readability_rejections
 
   defp decode_reasons(%{} = reasons) do
     Map.new(reasons, fn {reason, count} -> {to_string(reason), count} end)

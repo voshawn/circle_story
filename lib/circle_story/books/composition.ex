@@ -10,10 +10,19 @@ defmodule CircleStory.Books.Composition do
   require Logger
 
   alias CircleStory.Books.Composition.{HtmlRenderer, ImageOps, Layout, Luminance, Quality}
-  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Policy, Result, Scorer}
   alias CircleStory.Books.Actions.PlaceText
 
   @quality_contract Policy.contract_version()
+  # Derived from the gates that produce these reasons, so a new readability gate
+  # cannot be silently dropped from the decoded sidecar.
+  @readability_reasons Enum.map(Scorer.readability_reasons(), &Atom.to_string/1)
+  # Same rule for the values only `Result` produces: an outcome or ink this
+  # build does not know is reported as unrecorded rather than as a clean pass.
+  @quality_outcomes Result.selection_outcomes()
+  @quality_pass_outcome Result.threshold_pass_outcome()
+  @quality_inks Result.ink_labels()
+  @unrecorded_outcome "unrecorded"
 
   alias CircleStory.Books.{
     Book,
@@ -92,7 +101,6 @@ defmodule CircleStory.Books.Composition do
                 text_inset: candidate.inset,
                 text_min_font: candidate.min_font,
                 text_max_font: candidate.max_font,
-                text_backing: candidate.treatment,
                 debug_rect: debug_rect(box.bounding_box, region)
               })
             )
@@ -155,7 +163,6 @@ defmodule CircleStory.Books.Composition do
                 text_inset: candidate.inset,
                 text_min_font: candidate.min_font,
                 text_max_font: candidate.max_font,
-                text_backing: candidate.treatment,
                 debug_rect: debug_rect(box.bounding_box, region)
               })
             )
@@ -223,8 +230,9 @@ defmodule CircleStory.Books.Composition do
 
       true ->
         png = ImageOps.to_png_bytes(fitted_image)
+        placement_fetcher = Keyword.get(opts, :placement_fetcher, &PlaceText.run/2)
 
-        with {:ok, box} <- PlaceText.run(%{image_png: png, text: text, mode: mode}, %{}) do
+        with {:ok, box} <- placement_fetcher.(%{image_png: png, text: text, mode: mode}, %{}) do
           # Caching is best-effort: the box is already computed, so a write failure
           # (disk full, permissions) must not crash the render pipeline.
           _ = cache_placement(raw, box)
@@ -276,6 +284,9 @@ defmodule CircleStory.Books.Composition do
   defp decode_quality(nil), do: nil
 
   defp decode_quality(%{"contract_version" => @quality_contract} = quality) do
+    thresholds_met? = quality["readability_thresholds_met"] == true
+    rejections = decode_readability_rejections(quality["readability_rejections"])
+
     %{
       contract_version: @quality_contract,
       candidate_id: quality["candidate_id"],
@@ -289,7 +300,12 @@ defmodule CircleStory.Books.Composition do
       glyph_bounds: atomize_rect(quality["glyph_bounds"]),
       effect_bounds: atomize_rect(quality["effect_bounds"]),
       overflow: quality["overflow"],
-      treatment: quality["treatment"],
+      ink: decode_quality_ink(quality["ink"]),
+      treatment: "none",
+      selection_outcome:
+        decode_selection_outcome(quality["selection_outcome"], thresholds_met?, rejections),
+      readability_thresholds_met: thresholds_met?,
+      readability_rejections: rejections,
       metrics: decode_quality_metrics(quality["metrics"] || %{}),
       candidate_count: quality["candidate_count"],
       rejected_count: quality["rejected_count"],
@@ -302,17 +318,12 @@ defmodule CircleStory.Books.Composition do
 
   defp decode_quality(_), do: nil
 
-  # Untreated and treated attempts stay separate through the sidecar so a backing
-  # decision can still be audited from a page composed in an earlier session.
   defp decode_quality_attempts(%{} = attempts) do
-    %{
-      untreated: Attempts.decode(:untreated, attempts["untreated"]),
-      treated: Attempts.decode(:treated, attempts["treated"])
-    }
+    %{transparent: Attempts.decode(:transparent, attempts["transparent"])}
   end
 
   defp decode_quality_attempts(_attempts) do
-    %{untreated: Attempts.decode(:untreated, nil), treated: Attempts.decode(:treated, nil)}
+    %{transparent: Attempts.decode(:transparent, nil)}
   end
 
   defp decode_mask_render_errors(errors) when is_list(errors) do
@@ -325,13 +336,35 @@ defmodule CircleStory.Books.Composition do
 
   defp decode_quality_metrics(metrics) do
     %{
+      overall_p05: metrics["overall_p05"],
+      overall_low_contrast_fraction: metrics["overall_low_contrast_fraction"],
       worst_tile_p10: metrics["worst_tile_p10"],
       worst_tile_low_contrast_fraction: metrics["worst_tile_low_contrast_fraction"],
       worst_line_p05: metrics["worst_line_p05"],
+      worst_line_low_contrast_fraction: metrics["worst_line_low_contrast_fraction"],
       edge_density: metrics["edge_density"],
       soft_total: metrics["soft_total"]
     }
   end
+
+  defp decode_quality_ink(ink) when ink in @quality_inks, do: String.to_existing_atom(ink)
+  defp decode_quality_ink(_ink), do: nil
+
+  # A pass is only reported when the outcome is one this build produces and the
+  # readability evidence in the same sidecar agrees with it.
+  defp decode_selection_outcome(outcome, thresholds_met?, rejections) do
+    cond do
+      outcome not in @quality_outcomes -> @unrecorded_outcome
+      outcome != @quality_pass_outcome -> outcome
+      thresholds_met? and rejections == [] -> outcome
+      true -> @unrecorded_outcome
+    end
+  end
+
+  defp decode_readability_rejections(reasons) when is_list(reasons),
+    do: Enum.filter(reasons, &(&1 in @readability_reasons))
+
+  defp decode_readability_rejections(_reasons), do: []
 
   defp atomize_rect(%{"x" => x, "y" => y, "w" => w, "h" => h}),
     do: %{x: x, y: y, w: w, h: h}

@@ -446,12 +446,12 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
     scored = Scorer.score(art, candidate, mask, policy, :black)
 
-    refute :local_contrast_percentile in scored.hard_rejections
-    refute :local_contrast_fraction in scored.hard_rejections
+    refute :local_contrast_percentile in scored.readability_rejections
+    refute :local_contrast_fraction in scored.readability_rejections
     assert scored.metrics.overall_low_contrast_fraction < 0.01
 
     pressed = Scorer.score(art, %{candidate | id: "pressed", inset: 30}, mask, policy, :black)
-    assert :glyph_effect_inset in pressed.hard_rejections
+    assert :glyph_inset in pressed.hard_rejections
   end
 
   # The tile with the weakest contrast percentile and the tile with the largest
@@ -500,9 +500,9 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert scored.metrics.tile_count == 2
     assert scored.metrics.worst_tile_p10 >= policy.hard_contrast
     assert_in_delta scored.metrics.worst_tile_low_contrast_fraction, 0.07, 0.0001
-    assert :local_contrast_fraction in scored.hard_rejections
-    refute :local_contrast_percentile in scored.hard_rejections
-    refute :line_contrast in scored.hard_rejections
+    assert :local_contrast_fraction in scored.readability_rejections
+    refute :local_contrast_percentile in scored.readability_rejections
+    refute :line_contrast in scored.readability_rejections
   end
 
   # The scan threads its pixel index outside the sample accumulator, so the art
@@ -548,16 +548,17 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert white.glyph_bounds == %{x: 120, y: 40, w: 60, h: 20}
     assert white.metrics.glyph_samples == 60 * 20
     assert white.hard_rejections == []
+    assert white.readability_rejections == []
 
     # The same glyph pixels sit entirely on the black half, so black ink there
     # must fail: proof the scan read that half of the art, not the white half.
     black = Scorer.score(art, candidate, mask, policy, :black)
 
     assert black.glyph_bounds == white.glyph_bounds
-    assert :local_contrast_percentile in black.hard_rejections
+    assert :local_contrast_percentile in black.readability_rejections
   end
 
-  test "hard gates take precedence over arbitrarily favorable soft weights" do
+  test "non-negotiable geometry gates take precedence over favorable soft weights" do
     policy = test_policy(soft_weights: %{readability: 10_000.0})
     safe = evaluated_candidate("safe", 0, %{x: 520, y: 40, w: 160, h: 160}, 24, [])
 
@@ -567,43 +568,102 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
         1,
         %{x: 520, y: 40, w: 160, h: 160},
         64,
-        [:local_contrast_percentile]
+        [:glyph_inset]
       )
 
     assert {:ok, selected} = Selection.choose([unsafe, safe], safe.rect, policy)
     assert selected.id == "safe"
   end
 
-  test "a stronger passing treatment never outranks a weaker passing one" do
+  test "a threshold-passing transparent candidate is always preferred over fallback evidence" do
     rect = %{x: 520, y: 40, w: 160, h: 160}
+    preferred = evaluated_candidate("preferred", 1, rect, 24, [])
 
-    policy =
-      test_policy(
-        preferred_font: 36,
-        soft_weights: %{font_size: 10.0}
-      )
+    below_threshold =
+      evaluated_candidate("below-threshold", 0, rect, 64, [:local_contrast_fraction])
+      |> put_readability_metrics(12.0, 0.08, 12.0, 0.0)
 
-    weak = backed_candidate("weak-backing", 0, rect, 24, 0.44)
-    strong = backed_candidate("strong-backing", 1, rect, 36, 0.78)
+    assert {:ok, selected} =
+             Selection.choose([below_threshold, preferred], rect, test_policy())
 
-    assert {:ok, ranked_weak} = Selection.choose([weak], rect, policy)
-    assert {:ok, ranked_strong} = Selection.choose([strong], rect, policy)
-    assert ranked_strong.soft_total > ranked_weak.soft_total
-
-    assert {:ok, %{id: "weak-backing"}} = Selection.choose([strong, weak], rect, policy)
+    assert selected.id == "preferred"
+    assert selected.selection_outcome == :threshold_pass
   end
 
-  # One finalist/ink pair is fixed by the lightest backing while the others need
-  # stronger ones. Halting the whole opacity walk at the first pass would never
-  # score those pairs; halting each pair on its own must still not let their
-  # stronger passing treatment win the page.
-  test "each finalist/ink pair walks backing opacities until it passes, and the weakest wins" do
-    readable = %{x: 0, y: 0, w: 60, h: 40}
-    busy = %{x: 100, y: 0, w: 60, h: 40}
+  test "transparent fallback uses glyph metrics, refuses geometry failures, and breaks ink ties" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
 
-    art =
-      Image.new!(200, 100, color: [150, 150, 150])
-      |> Image.compose!(checkerboard(busy.w, busy.h, 4), x: busy.x, y: busy.y)
+    weaker =
+      evaluated_candidate("weaker", 0, rect, 24, [:local_contrast_percentile])
+      |> put_readability_metrics(2.0, 0.2, 2.2, 0.4)
+
+    black =
+      evaluated_candidate("tie", 1, rect, 24, [:local_contrast_fraction])
+      |> put_readability_metrics(2.8, 0.08, 2.9, 0.1)
+
+    white = %{black | ink: :white}
+
+    geometry_failure =
+      evaluated_candidate("clipped", 2, rect, 24, [:glyph_inset])
+      |> put_readability_metrics(20.0, 0.0, 20.0, 0.0)
+
+    assert {:ok, selected} =
+             Selection.choose([white, geometry_failure, weaker, black], rect, test_policy())
+
+    assert selected.id == "tie"
+    assert selected.ink == :black
+    assert selected.selection_outcome == :below_threshold_transparent_fallback
+    assert selected.hard_rejections == []
+    assert selected.readability_rejections == [:local_contrast_fraction]
+  end
+
+  test "scan accounting and the selection outcome never contradict each other" do
+    rect = %{x: 520, y: 40, w: 160, h: 160}
+    policy = test_policy()
+
+    scenarios = [
+      [[]],
+      [[:local_contrast_percentile]],
+      [[:glyph_inset]],
+      [[:glyph_inset], [:line_contrast]],
+      [[:glyph_inset, :local_contrast_fraction]],
+      [[:local_contrast_fraction], [], [:glyph_inset]]
+    ]
+
+    for rejection_sets <- scenarios do
+      variants =
+        rejection_sets
+        |> Enum.with_index()
+        |> Enum.map(fn {rejections, index} ->
+          "v#{index}"
+          |> evaluated_candidate(index, rect, 24, rejections)
+          |> put_readability_metrics(2.5, 0.2, 2.6, 0.1)
+        end)
+
+      attempts = Attempts.summarize(:transparent, variants)
+      assert attempts.scanned == length(variants)
+      assert attempts.passed + attempts.rejected == attempts.scanned
+
+      outcome =
+        case Selection.choose(variants, rect, policy) do
+          {:ok, selected} -> selected.selection_outcome
+          {:error, reason} -> reason
+        end
+
+      if attempts.passed > 0 do
+        assert outcome == :threshold_pass,
+               "#{inspect(rejection_sets)} counted #{attempts.passed} passing scans " <>
+                 "but selected #{inspect(outcome)}"
+      else
+        refute outcome == :threshold_pass,
+               "#{inspect(rejection_sets)} counted no passing scan but selected a threshold pass"
+      end
+    end
+  end
+
+  test "finalist evaluation scans exactly black and white transparent ink" do
+    rect = %{x: 0, y: 0, w: 60, h: 40}
+    art = Image.new!(200, 100, color: [150, 150, 150])
 
     policy =
       Policy.new(:cover,
@@ -617,53 +677,36 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
         finalist_limit: 4
       )
 
-    finalists = [
-      scan_candidate("readable", 0, readable),
-      scan_candidate("busy", 1, busy)
-    ]
+    finalists = [scan_candidate("first", 0, rect), scan_candidate("second", 1, rect)]
 
     context = %Context{
       image: art,
       content: %{text: "hello"},
       placement: placement(),
-      seed_rect: readable,
+      seed_rect: rect,
       policy: policy,
       renderer: SolidMaskRenderer,
-      bounds: Policy.bounds_for_seed(policy, readable),
+      bounds: Policy.bounds_for_seed(policy, rect),
       candidates: finalists,
       finalists: finalists
     }
 
     assert {:ok, evaluated} = Quality.run_steps(context, [{Quality, :evaluate_finalists}])
+    assert length(evaluated.evaluated) == 4
 
-    assert length(evaluated.untreated) == 4
-    assert Enum.all?(evaluated.untreated, &(&1.hard_rejections != []))
+    assert evaluated.evaluated |> Enum.map(& &1.ink) |> Enum.frequencies() == %{
+             black: 2,
+             white: 2
+           }
 
-    # 4 pairs at 0.44, the 3 still unresolved at 0.6, the 2 still unresolved at
-    # 0.78 — pairs that already passed stop costing scans, unresolved ones do not.
-    assert evaluated.treated |> Enum.map(& &1.treatment.opacity) |> Enum.frequencies() ==
-             %{0.44 => 4, 0.6 => 3, 0.78 => 2}
-
-    passing_opacities =
-      evaluated.treated
-      |> Enum.filter(&(&1.hard_rejections == []))
-      |> Enum.map(& &1.treatment.opacity)
-      |> Enum.sort()
-
-    assert passing_opacities == [0.44, 0.6, 0.78, 0.78]
+    assert Enum.all?(evaluated.evaluated, &(&1.hard_rejections == []))
+    assert Enum.all?(evaluated.evaluated, &(&1.readability_rejections != []))
 
     assert {:ok, result} = Quality.select_candidate(evaluated)
-
-    assert result.candidate.treatment.opacity == 0.44
-    assert result.candidate.rect == readable
-    assert result.candidate.hard_rejections == []
-    assert result.scored_count == 13
-    assert result.scored_count <= 2 * length(finalists) * (1 + length(policy.backing_opacities))
-    assert result.untreated.scanned == 4
-    assert result.untreated.passed == 0
-    assert result.untreated.rejection_reasons != %{}
-    assert result.treated.scanned == 9
-    assert result.treated.passed == 4
+    assert result.candidate.selection_outcome == :below_threshold_transparent_fallback
+    assert result.scored_count == 4
+    assert result.transparent.scanned == 4
+    assert result.transparent.passed == 0
   end
 
   test "soft weights can change ranking only among passing candidates" do
@@ -786,8 +829,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
 
     assert {:ok, %{id: "passing"}} = Selection.choose([unscored, passing], rect, policy)
 
-    assert {:error, :no_candidate_passed_hard_gates} =
-             Selection.choose([unscored], rect, policy)
+    assert {:error, :no_geometry_safe_candidate} = Selection.choose([unscored], rect, policy)
   end
 
   test "an incomplete browser measurement is a rejection, not a raise" do
@@ -848,50 +890,45 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert details.rejection_reasons[:text_overflow] == length(generated.candidates)
   end
 
-  test "provenance keeps untreated and treated attempt evidence separable and JSON-safe" do
+  test "provenance keeps transparent attempt and fallback evidence JSON-safe" do
     rect = %{x: 520, y: 40, w: 160, h: 160}
     winner = evaluated_candidate("winner", 3, rect, 24, [])
 
+    variants = [
+      winner,
+      evaluated_candidate("u0", 0, rect, 24, [:local_contrast_percentile]),
+      evaluated_candidate("u1", 1, rect, 24, [:local_contrast_percentile]),
+      evaluated_candidate("u2", 2, rect, 24, [:local_contrast_fraction]),
+      evaluated_candidate("g1", 4, rect, 24, [:glyph_inset]),
+      evaluated_candidate("g2", 5, rect, 24, [:glyph_inset])
+    ]
+
     result = %Result{
-      candidate: %{winner | treatment: %{type: :backing, color: :white, opacity: 0.44}},
+      candidate: winner,
       contract_version: Policy.contract_version(),
       candidate_count: 12,
       rejected_count: 5,
       scored_count: 6,
-      untreated:
-        Attempts.summarize(:untreated, [
-          evaluated_candidate("u0", 0, rect, 24, [:local_contrast_percentile]),
-          evaluated_candidate("u1", 1, rect, 24, [:local_contrast_percentile]),
-          evaluated_candidate("u2", 2, rect, 24, [:local_contrast_fraction])
-        ]),
-      treated:
-        Attempts.summarize(:treated, [
-          winner,
-          evaluated_candidate("t1", 4, rect, 24, [:glyph_effect_inset]),
-          evaluated_candidate("t2", 5, rect, 24, [:glyph_effect_inset])
-        ]),
+      transparent: Attempts.summarize(:transparent, variants),
       mask_render_errors: [{"candidate-9", :mask_timeout}]
     }
 
     provenance = Result.provenance(result)
 
     assert provenance.scored_count == 6
+    assert provenance.treatment == "none"
+    assert provenance.selection_outcome == "threshold_pass"
+    assert provenance.readability_thresholds_met
 
-    assert provenance.attempts.untreated == %{
-             scanned: 3,
-             passed: 0,
-             rejected: 3,
+    assert provenance.attempts.transparent == %{
+             scanned: 6,
+             passed: 1,
+             rejected: 5,
              rejection_reasons: %{
                "local_contrast_percentile" => 2,
-               "local_contrast_fraction" => 1
+               "local_contrast_fraction" => 1,
+               "glyph_inset" => 2
              }
-           }
-
-    assert provenance.attempts.treated == %{
-             scanned: 3,
-             passed: 1,
-             rejected: 2,
-             rejection_reasons: %{"glyph_effect_inset" => 2}
            }
 
     assert provenance.mask_render_errors == [
@@ -899,7 +936,8 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
            ]
 
     assert {:ok, encoded} = Jason.encode(provenance)
-    assert %{"attempts" => %{"untreated" => %{"scanned" => 3}}} = Jason.decode!(encoded)
+    assert %{"attempts" => %{"transparent" => %{"scanned" => 6}}} = Jason.decode!(encoded)
+    refute encoded =~ "backing"
   end
 
   test "renderer and image-library faults persist as bounded classes, not their raw terms" do
@@ -915,12 +953,12 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       candidate_count: 4,
       rejected_count: 2,
       scored_count: 3,
-      untreated:
-        Attempts.summarize(:untreated, [
+      transparent:
+        Attempts.summarize(:transparent, [
+          evaluated_candidate("winner", 0, rect, 24, []),
           evaluated_candidate("u0", 1, rect, 24, [{:image_binary_failed, vips_detail}]),
           evaluated_candidate("u1", 2, rect, 24, [{:image_binary_failed, other_vips_detail}])
         ]),
-      treated: Attempts.summarize(:treated, []),
       mask_render_errors: [
         {"candidate-1",
          {:renderer_exit,
@@ -940,7 +978,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
              %{candidate_id: "candidate-3", reason: "string"}
            ]
 
-    assert provenance.attempts.untreated.rejection_reasons == %{"image_binary_failed" => 2}
+    assert provenance.attempts.transparent.rejection_reasons == %{"image_binary_failed" => 2}
 
     assert {:ok, encoded} = Jason.encode(provenance)
     refute encoded =~ page_text
@@ -981,7 +1019,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       evaluated_candidate("u3", 3, rect, 24, [:local_contrast_percentile])
     ]
 
-    attempts = Attempts.summarize(:untreated, rejected)
+    attempts = Attempts.summarize(:transparent, rejected)
 
     assert map_size(attempts.rejection_reasons) == 4
     assert attempts.rejected == 4
@@ -1084,22 +1122,6 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     """)
   end
 
-  defp checkerboard(width, height, cell) do
-    squares =
-      for y <- 0..(div(height, cell) - 1),
-          x <- 0..(div(width, cell) - 1),
-          rem(x + y, 2) == 0 do
-        ~s(<rect x="#{x * cell}" y="#{y * cell}" width="#{cell}" height="#{cell}" fill="#000" />)
-      end
-
-    Image.from_svg!("""
-    <svg xmlns="http://www.w3.org/2000/svg" width="#{width}" height="#{height}">
-      <rect width="100%" height="100%" fill="#fff" />
-      #{Enum.join(squares)}
-    </svg>
-    """)
-  end
-
   defp scan_candidate(id, index, rect) do
     %Candidate{
       id: id,
@@ -1122,14 +1144,23 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     }
   end
 
-  defp backed_candidate(id, index, rect, font_size, opacity) do
+  defp put_readability_metrics(candidate, tile, low_fraction, line, edge) do
     %{
-      evaluated_candidate(id, index, rect, font_size, [])
-      | treatment: %{type: :backing, color: :white, opacity: opacity}
+      candidate
+      | metrics: %{
+          candidate.metrics
+          | worst_tile_p10: tile,
+            worst_tile_low_contrast_fraction: low_fraction,
+            worst_line_p05: line,
+            edge_density: edge
+        }
     }
   end
 
   defp evaluated_candidate(id, index, rect, font_size, rejections) do
+    {readability_rejections, hard_rejections} =
+      Enum.split_with(rejections, &(&1 in Scorer.readability_reasons()))
+
     %Candidate{
       id: id,
       index: index,
@@ -1149,11 +1180,15 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
       },
       ink: :black,
       glyph_bounds: %{x: 20, y: 20, w: rect.w - 40, h: rect.h - 40},
-      hard_rejections: rejections,
+      hard_rejections: hard_rejections,
+      readability_rejections: readability_rejections,
       metrics: %{
+        overall_p05: 6.0,
+        overall_low_contrast_fraction: 0.0,
         worst_tile_p10: 6.0,
         worst_tile_low_contrast_fraction: 0.0,
         worst_line_p05: 6.0,
+        worst_line_low_contrast_fraction: 0.0,
         edge_density: 0.0
       }
     }

@@ -1,6 +1,7 @@
 defmodule CircleStory.Books.PageComponentsTest do
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
+  import CircleStory.BackingLayerAssertions
 
   alias CircleStory.Books.PageComponents
 
@@ -26,7 +27,7 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert html =~ ~s(data-max-font="64")
   end
 
-  test "inner_spread/1 renders the selected safety inset, font cap, and backing" do
+  test "inner_spread/1 renders the selected safety inset and font cap with transparent text" do
     html =
       render_component(&PageComponents.inner_spread/1, %{
         art_uri: "data:image/png;base64,AAAA",
@@ -37,14 +38,246 @@ defmodule CircleStory.Books.PageComponentsTest do
         color: "#1A1A1A",
         text_inset: 48,
         text_min_font: 18,
-        text_max_font: 56,
-        text_backing: %{type: :backing, color: :white, opacity: 0.44}
+        text_max_font: 56
       })
 
     assert html =~ "left:48px;right:48px;top:48px;bottom:48px"
     assert html =~ ~s(data-min-font="18")
     assert html =~ ~s(data-max-font="56")
-    assert html =~ "background:rgba(250,250,250,0.44)"
+    assert_transparent_text_box(html)
+    assert_no_fill_anywhere(html)
+  end
+
+  test "no page surface paints a backing layer behind composed text" do
+    inner =
+      render_component(&PageComponents.inner_spread/1, %{
+        art_uri: "data:image/png;base64,AAAA",
+        text: "Meet Ornella.",
+        rect: %{x: 300, y: 200, w: 900, h: 400},
+        align: :center,
+        valign: :middle,
+        color: "#FAFAFA",
+        text_inset: 48,
+        text_min_font: 18,
+        text_max_font: 56
+      })
+
+    assert_transparent_text_box(inner)
+    assert_no_fill_anywhere(inner)
+
+    cover =
+      render_component(&PageComponents.cover/1, %{
+        art_uri: "data:image/png;base64,BBBB",
+        rect: %{x: 200, y: 150, w: 1400, h: 500},
+        align: :center,
+        front_color: "#FAFAFA",
+        title: "Nani's Magic Thread",
+        author: "Sidd & Veronika",
+        tagline: "A story of love.",
+        fill: "rgb(180,170,150)",
+        ink: "#1A1A1A"
+      })
+
+    assert_transparent_text_box(cover)
+
+    candidate = %{
+      id: "candidate-0",
+      rect: %{x: 0, y: 0, w: 900, h: 400},
+      align: :center,
+      valign: :middle,
+      min_font: 24,
+      max_font: 360,
+      inset: 48
+    }
+
+    sheet =
+      render_component(&PageComponents.quality_sheet/1, %{
+        candidates: [candidate],
+        content: %{text: "Meet Ornella."},
+        role: :inner
+      })
+
+    mask =
+      render_component(&PageComponents.quality_mask/1, %{
+        candidate: candidate,
+        content: %{text: "Meet Ornella."},
+        role: :inner
+      })
+
+    assert_transparent_text_box(sheet)
+    assert_transparent_text_box(mask)
+  end
+
+  test "a fill declared behind the text box is what these regressions catch" do
+    backed =
+      ~s(<div style="position:relative;"><div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="background:#00000080;color:#FFF">Meet Ornella.</div>) <>
+        ~s(</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(backed) end
+
+    sibling =
+      ~s(<div style="position:relative;">) <>
+        ~s(<div style="position:absolute;left:300px;top:200px;box-shadow:0 0 0 40px #fff;"></div>) <>
+        ~s(<div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="color:#FFF">Meet Ornella.</div></div></div></div>)
+
+    assert_transparent_text_box(sibling)
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(sibling) end
+
+    styled =
+      ~s|<style>.fit-text { background-color: rgb(0,0,0); }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-safe">) <>
+        ~s(<div class="fit-inner" style="color:#FFF">Meet Ornella.</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(styled) end
+
+    universal =
+      ~s|<style>* { background:#0008; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-safe"><div class="fit-inner">Text</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(universal) end
+
+    container_target =
+      ~s|<style>.copy-region > div { backdrop-filter:blur(2px); }</style>| <>
+        ~s(<div class="copy-region"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(container_target) end
+
+    legitimate_page_fill =
+      ~s|<style>.page { background:#fff; }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(legitimate_page_fill)
+  end
+
+  test "a fill nested inside an at-rule block cannot slip past the regressions" do
+    media =
+      ~s|<style>@media print { .fit-text { background:#fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(media) end
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(media) end
+
+    doubly_nested =
+      ~s|<style>@media print { @supports (backdrop-filter:blur(1px)) {| <>
+        ~s| .fit-inner { backdrop-filter:blur(2px); } } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(doubly_nested) end
+
+    universal_in_at_rule =
+      ~s|<style>@media screen { * { box-shadow:0 0 0 40px #fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(universal_in_at_rule)
+    end
+
+    rules_after_the_at_rule =
+      ~s|<style>@media print { .page { color:#000; } } .fit-inner { background:#0008; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(rules_after_the_at_rule)
+    end
+
+    page_and_font_at_rules =
+      ~s|<style>@page { background:#fff; }| <>
+        ~s|@font-face { font-family:"Story"; src:url(data:font/woff2;base64,AA==); }| <>
+        ~s|@media print { .page { background:#fff; } }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(page_and_font_at_rules)
+
+    commented_out =
+      ~s|<style>/* .fit-text { background:#fff; } */ .fit-text { color:#000; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_transparent_text_box(commented_out)
+  end
+
+  test "a rule keeps its own fill even when it also nests another block" do
+    own_fill_beside_a_nested_rule =
+      ~s|<style>.fit-text { background:#fff; & div { color:red; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(own_fill_beside_a_nested_rule)
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_no_fill_anywhere(own_fill_beside_a_nested_rule)
+    end
+
+    fill_conditioned_inside_the_rule =
+      ~s|<style>.fit-inner { color:#000; @media print { background:#fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(fill_conditioned_inside_the_rule)
+    end
+
+    nested_fill_on_a_page_surface =
+      ~s|<style>.page { color:#000; @media print { background:#fff; } }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(nested_fill_on_a_page_surface)
+  end
+
+  test "a statement at-rule does not swallow the selector that follows it" do
+    charset_before_the_fill =
+      ~s|<style>@charset "utf-8"; .fit-text { background:#fff; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(charset_before_the_fill)
+    end
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_no_fill_anywhere(charset_before_the_fill)
+    end
+
+    layer_before_the_fill =
+      ~s|<style>@layer base, page; .fit-inner { box-shadow:0 0 0 40px #fff; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(layer_before_the_fill)
+    end
+
+    import_before_a_page_fill =
+      ~s|<style>@import url(print.css); .page { background:#fff; }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(import_before_a_page_fill)
+  end
+
+  test "scoped no-fill assertion inspects descendants but not unrelated page surfaces" do
+    html =
+      ~s|<style>.page { background:#fff; }.copy span { box-shadow:0 0 2px #000; }</style>| <>
+        ~s(<main class="page"><section class="copy"><span>Text</span></section>) <>
+        ~s(<section class="safe"><span>Other text</span></section></main>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(html, ".copy") end
+    assert_no_fill_anywhere(html, ".safe")
+  end
+
+  test "scope membership follows the element, not markup that serializes the same" do
+    html =
+      ~s|<style>.copy span { box-shadow:0 0 2px #000; }</style>| <>
+        ~s(<main class="page"><section class="copy"><span>Text</span></section>) <>
+        ~s(<section class="safe"><span>Text</span></section></main>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(html, ".copy") end
+    assert_no_fill_anywhere(html, ".safe")
+
+    twins =
+      ~s|<style>.decor .fit-inner { background:#0008; }</style>| <>
+        ~s(<div class="decor"><div class="fit-inner">Text</div></div>) <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_transparent_text_box(twins)
   end
 
   test "cover/1 applies the selected font floor to the front panel only" do

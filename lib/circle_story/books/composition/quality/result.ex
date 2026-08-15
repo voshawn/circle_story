@@ -3,13 +3,16 @@ defmodule CircleStory.Books.Composition.Quality.Result do
 
   alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Diagnostics}
 
+  @threshold_pass "threshold_pass"
+  @below_threshold_transparent_fallback "below_threshold_transparent_fallback"
+  @ink_labels ["black", "white"]
+
   @enforce_keys [:candidate, :contract_version, :candidate_count, :rejected_count]
   defstruct @enforce_keys ++
               [
                 duration_ms: nil,
                 scored_count: 0,
-                untreated: %Attempts{kind: :untreated},
-                treated: %Attempts{kind: :treated},
+                transparent: %Attempts{kind: :transparent},
                 mask_render_errors: []
               ]
 
@@ -20,10 +23,31 @@ defmodule CircleStory.Books.Composition.Quality.Result do
           rejected_count: non_neg_integer(),
           duration_ms: float() | nil,
           scored_count: non_neg_integer(),
-          untreated: Attempts.t(),
-          treated: Attempts.t(),
+          transparent: Attempts.t(),
           mask_render_errors: [{String.t(), term()}]
         }
+
+  @doc """
+  The selection outcomes `provenance/1` can persist.
+
+  Consumers that decode a sidecar must derive their allowlist from here and
+  treat anything else as unrecorded, so a newly added outcome cannot be read
+  back as a clean threshold pass.
+  """
+  @spec selection_outcomes() :: [String.t()]
+  def selection_outcomes, do: [@threshold_pass, @below_threshold_transparent_fallback]
+
+  @doc "The outcome naming a publish that met the preferred readability thresholds."
+  @spec threshold_pass_outcome() :: String.t()
+  def threshold_pass_outcome, do: @threshold_pass
+
+  @doc "The outcome naming a published below-threshold transparent fallback."
+  @spec fallback_outcome() :: String.t()
+  def fallback_outcome, do: @below_threshold_transparent_fallback
+
+  @doc "The ink labels `provenance/1` can persist."
+  @spec ink_labels() :: [String.t()]
+  def ink_labels, do: @ink_labels
 
   @doc "Compact provenance suitable for the placement sidecar and development UI."
   @spec provenance(t()) :: map()
@@ -39,24 +63,33 @@ defmodule CircleStory.Books.Composition.Quality.Result do
       line_count: candidate.measure.line_count,
       lines: global_lines(candidate),
       glyph_bounds: global_glyph_bounds(candidate),
-      effect_bounds: effect_bounds(candidate),
+      effect_bounds: global_glyph_bounds(candidate),
       overflow: candidate.measure.overflow,
-      treatment: treatment_label(candidate.treatment),
+      ink: ink_label(candidate.ink),
+      # Retained for the serialized placement contract. Transparent text has no
+      # treatment layer, so this value is deliberately fixed rather than derived.
+      treatment: "none",
+      selection_outcome: selection_outcome(candidate),
+      readability_thresholds_met: candidate.readability_rejections == [],
+      readability_rejections: reason_classes(candidate.readability_rejections),
       metrics: %{
-        worst_tile_p10: round_metric(candidate.metrics.worst_tile_p10),
-        worst_tile_low_contrast_fraction:
-          round_metric(candidate.metrics.worst_tile_low_contrast_fraction),
-        worst_line_p05: round_metric(candidate.metrics.worst_line_p05),
-        edge_density: round_metric(candidate.metrics.edge_density),
+        overall_p05: metric(candidate, :overall_p05),
+        overall_low_contrast_fraction: metric(candidate, :overall_low_contrast_fraction),
+        worst_tile_p10: metric(candidate, :worst_tile_p10),
+        worst_tile_low_contrast_fraction: metric(candidate, :worst_tile_low_contrast_fraction),
+        worst_line_p05: metric(candidate, :worst_line_p05),
+        worst_line_low_contrast_fraction:
+          metric(
+            candidate,
+            :worst_line_low_contrast_fraction
+          ),
+        edge_density: metric(candidate, :edge_density),
         soft_total: round_metric(candidate.soft_total)
       },
       candidate_count: result.candidate_count,
       rejected_count: result.rejected_count,
       scored_count: result.scored_count,
-      attempts: %{
-        untreated: Attempts.provenance(result.untreated),
-        treated: Attempts.provenance(result.treated)
-      },
+      attempts: %{transparent: Attempts.provenance(result.transparent)},
       mask_render_errors: mask_render_errors(result.mask_render_errors),
       duration_ms: round_metric(result.duration_ms)
     }
@@ -69,6 +102,8 @@ defmodule CircleStory.Books.Composition.Quality.Result do
       %{candidate_id: candidate_id, reason: Diagnostics.reason_class(reason)}
     end)
   end
+
+  defp reason_classes(reasons), do: Enum.map(reasons, &Diagnostics.reason_class/1)
 
   defp global_lines(candidate) do
     Enum.map(candidate.measure.lines, fn line ->
@@ -90,14 +125,15 @@ defmodule CircleStory.Books.Composition.Quality.Result do
     }
   end
 
-  defp effect_bounds(%{treatment: nil} = candidate), do: global_glyph_bounds(candidate)
-  defp effect_bounds(candidate), do: candidate.rect
+  defp ink_label(:black), do: "black"
+  defp ink_label(:white), do: "white"
 
-  defp treatment_label(nil), do: "none"
+  defp selection_outcome(%{selection_outcome: :below_threshold_transparent_fallback}),
+    do: @below_threshold_transparent_fallback
 
-  defp treatment_label(%{type: :backing, color: color, opacity: opacity}) do
-    "#{color}_backing_#{round(opacity * 100)}"
-  end
+  defp selection_outcome(_candidate), do: @threshold_pass
+
+  defp metric(candidate, name), do: candidate.metrics |> Map.get(name) |> round_metric()
 
   defp round_metric(value) when is_number(value), do: Float.round(value * 1.0, 3)
   defp round_metric(_), do: nil

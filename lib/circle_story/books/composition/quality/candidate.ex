@@ -17,9 +17,10 @@ defmodule CircleStory.Books.Composition.Quality.Candidate do
               [
                 :measure,
                 :ink,
-                :treatment,
                 :glyph_bounds,
+                :selection_outcome,
                 hard_rejections: [],
+                readability_rejections: [],
                 metrics: %{},
                 soft_metrics: %{},
                 soft_contributions: %{},
@@ -27,4 +28,15 @@ defmodule CircleStory.Books.Composition.Quality.Candidate do
               ]
 
   @type t :: %__MODULE__{}
+
+  @doc """
+  True when a candidate meets the preferred thresholds.
+
+  Selection and the scan accounting must agree on this predicate: if they
+  diverge, `attempts.transparent.passed` and `selection_outcome` can contradict
+  each other in the provenance an operator audits a below-threshold publish with.
+  """
+  @spec preferred?(t()) :: boolean()
+  def preferred?(%__MODULE__{} = candidate),
+    do: candidate.hard_rejections == [] and candidate.readability_rejections == []
 end

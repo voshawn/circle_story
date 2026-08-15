@@ -13,7 +13,6 @@ defmodule CircleStory.Books.PageComponents do
   use Phoenix.Component
 
   alias CircleStory.Books.Composition.Layout
-  alias CircleStory.Books.Composition.Luminance
 
   @blurb_lines [
     "Circle Storybooks",
@@ -44,7 +43,6 @@ defmodule CircleStory.Books.PageComponents do
   attr :text_inset, :integer, default: 0
   attr :text_min_font, :integer, default: @min_font
   attr :text_max_font, :integer, default: @max_font_body
-  attr :text_backing, :map, default: nil
 
   def inner_spread(assigns) do
     {w, h} = Layout.inner_dims()
@@ -63,7 +61,6 @@ defmodule CircleStory.Books.PageComponents do
         min_font={@text_min_font}
         max_font={@text_max_font}
         inset={@text_inset}
-        backing={@text_backing}
       >
         <.role_content role={:inner} content={%{text: @text}} />
       </.fit_text>
@@ -134,7 +131,6 @@ defmodule CircleStory.Books.PageComponents do
   attr :text_inset, :integer, default: 0
   attr :text_min_font, :integer, default: @min_font
   attr :text_max_font, :integer, default: @max_font_title
-  attr :text_backing, :map, default: nil
 
   def cover(assigns) do
     {w, h} = Layout.cover_dims()
@@ -217,7 +213,6 @@ defmodule CircleStory.Books.PageComponents do
           min_font={@text_min_font}
           max_font={@text_max_font}
           inset={@text_inset}
-          backing={@text_backing}
         >
           <.role_content role={:cover} content={%{title: @title, author: @author}} />
         </.fit_text>
@@ -239,7 +234,6 @@ defmodule CircleStory.Books.PageComponents do
   attr :min_font, :integer, default: 8
   attr :max_font, :integer, default: 400
   attr :inset, :integer, default: 0
-  attr :backing, :map, default: nil
   attr :candidate_id, :string, default: nil
 
   attr :valign, :atom,
@@ -256,7 +250,7 @@ defmodule CircleStory.Books.PageComponents do
       data-min-font={@min_font}
       data-max-font={@max_font}
       data-inset={@inset}
-      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;overflow:hidden;#{backing_css(@backing)}"}
+      style={"position:absolute;left:#{@rect.x}px;top:#{@rect.y}px;width:#{@rect.w}px;height:#{@rect.h}px;overflow:hidden;"}
     >
       <div
         class="fit-safe"
@@ -355,13 +349,6 @@ defmodule CircleStory.Books.PageComponents do
   defp valign_css(:top), do: "flex-start"
   defp valign_css(:bottom), do: "flex-end"
   defp valign_css(_), do: "center"
-
-  defp backing_css(nil), do: ""
-
-  defp backing_css(%{type: :backing, color: color, opacity: opacity}) do
-    [red, green, blue] = Luminance.rgb(color)
-    "background:rgba(#{red},#{green},#{blue},#{opacity});border-radius:24px;"
-  end
 
   attr :rect, :map, required: true
 
