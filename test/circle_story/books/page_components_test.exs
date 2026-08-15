@@ -151,6 +151,52 @@ defmodule CircleStory.Books.PageComponentsTest do
     assert_transparent_text_box(legitimate_page_fill)
   end
 
+  test "a fill nested inside an at-rule block cannot slip past the regressions" do
+    media =
+      ~s|<style>@media print { .fit-text { background:#fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(media) end
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(media) end
+
+    doubly_nested =
+      ~s|<style>@media print { @supports (backdrop-filter:blur(1px)) {| <>
+        ~s| .fit-inner { backdrop-filter:blur(2px); } } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_transparent_text_box(doubly_nested) end
+
+    universal_in_at_rule =
+      ~s|<style>@media screen { * { box-shadow:0 0 0 40px #fff; } }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(universal_in_at_rule)
+    end
+
+    rules_after_the_at_rule =
+      ~s|<style>@media print { .page { color:#000; } } .fit-inner { background:#0008; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_raise ExUnit.AssertionError, fn ->
+      assert_transparent_text_box(rules_after_the_at_rule)
+    end
+
+    page_and_font_at_rules =
+      ~s|<style>@page { background:#fff; }| <>
+        ~s|@font-face { font-family:"Story"; src:url(data:font/woff2;base64,AA==); }| <>
+        ~s|@media print { .page { background:#fff; } }</style>| <>
+        ~s(<div class="page"><div class="fit-text"><div class="fit-inner">Text</div></div></div>)
+
+    assert_transparent_text_box(page_and_font_at_rules)
+
+    commented_out =
+      ~s|<style>/* .fit-text { background:#fff; } */ .fit-text { color:#000; }</style>| <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_transparent_text_box(commented_out)
+  end
+
   test "scoped no-fill assertion inspects descendants but not unrelated page surfaces" do
     html =
       ~s|<style>.page { background:#fff; }.copy span { box-shadow:0 0 2px #000; }</style>| <>
@@ -159,6 +205,23 @@ defmodule CircleStory.Books.PageComponentsTest do
 
     assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(html, ".copy") end
     assert_no_fill_anywhere(html, ".safe")
+  end
+
+  test "scope membership follows the element, not markup that serializes the same" do
+    html =
+      ~s|<style>.copy span { box-shadow:0 0 2px #000; }</style>| <>
+        ~s(<main class="page"><section class="copy"><span>Text</span></section>) <>
+        ~s(<section class="safe"><span>Text</span></section></main>)
+
+    assert_raise ExUnit.AssertionError, fn -> assert_no_fill_anywhere(html, ".copy") end
+    assert_no_fill_anywhere(html, ".safe")
+
+    twins =
+      ~s|<style>.decor .fit-inner { background:#0008; }</style>| <>
+        ~s(<div class="decor"><div class="fit-inner">Text</div></div>) <>
+        ~s(<div class="fit-text"><div class="fit-inner">Text</div></div>)
+
+    assert_transparent_text_box(twins)
   end
 
   test "cover/1 applies the selected font floor to the front panel only" do

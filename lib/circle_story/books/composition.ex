@@ -17,6 +17,12 @@ defmodule CircleStory.Books.Composition do
   # Derived from the gates that produce these reasons, so a new readability gate
   # cannot be silently dropped from the decoded sidecar.
   @readability_reasons Enum.map(Scorer.readability_reasons(), &Atom.to_string/1)
+  # Same rule for the values only `Result` produces: an outcome or ink this
+  # build does not know is reported as unrecorded rather than as a clean pass.
+  @quality_outcomes Result.selection_outcomes()
+  @quality_pass_outcome Result.threshold_pass_outcome()
+  @quality_inks Result.ink_labels()
+  @unrecorded_outcome "unrecorded"
 
   alias CircleStory.Books.{
     Book,
@@ -278,6 +284,9 @@ defmodule CircleStory.Books.Composition do
   defp decode_quality(nil), do: nil
 
   defp decode_quality(%{"contract_version" => @quality_contract} = quality) do
+    thresholds_met? = quality["readability_thresholds_met"] == true
+    rejections = decode_readability_rejections(quality["readability_rejections"])
+
     %{
       contract_version: @quality_contract,
       candidate_id: quality["candidate_id"],
@@ -293,9 +302,10 @@ defmodule CircleStory.Books.Composition do
       overflow: quality["overflow"],
       ink: decode_quality_ink(quality["ink"]),
       treatment: "none",
-      selection_outcome: decode_selection_outcome(quality["selection_outcome"]),
-      readability_thresholds_met: quality["readability_thresholds_met"] == true,
-      readability_rejections: decode_readability_rejections(quality["readability_rejections"]),
+      selection_outcome:
+        decode_selection_outcome(quality["selection_outcome"], thresholds_met?, rejections),
+      readability_thresholds_met: thresholds_met?,
+      readability_rejections: rejections,
       metrics: decode_quality_metrics(quality["metrics"] || %{}),
       candidate_count: quality["candidate_count"],
       rejected_count: quality["rejected_count"],
@@ -337,13 +347,19 @@ defmodule CircleStory.Books.Composition do
     }
   end
 
-  defp decode_quality_ink("white"), do: :white
-  defp decode_quality_ink(_ink), do: :black
+  defp decode_quality_ink(ink) when ink in @quality_inks, do: String.to_existing_atom(ink)
+  defp decode_quality_ink(_ink), do: nil
 
-  defp decode_selection_outcome("below_threshold_transparent_fallback"),
-    do: "below_threshold_transparent_fallback"
-
-  defp decode_selection_outcome(_outcome), do: "threshold_pass"
+  # A pass is only reported when the outcome is one this build produces and the
+  # readability evidence in the same sidecar agrees with it.
+  defp decode_selection_outcome(outcome, thresholds_met?, rejections) do
+    cond do
+      outcome not in @quality_outcomes -> @unrecorded_outcome
+      outcome != @quality_pass_outcome -> outcome
+      thresholds_met? and rejections == [] -> outcome
+      true -> @unrecorded_outcome
+    end
+  end
 
   defp decode_readability_rejections(reasons) when is_list(reasons),
     do: Enum.filter(reasons, &(&1 in @readability_reasons))

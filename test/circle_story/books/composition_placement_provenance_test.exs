@@ -193,6 +193,108 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     assert cached.composition_quality.readability_rejections == ["local_contrast_percentile"]
   end
 
+  test "a sidecar that cannot prove a threshold pass never decodes as one", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    base = %{
+      contract_version: Policy.contract_version(),
+      candidate_id: "candidate-7",
+      final_rect: %{x: 140, y: 160, w: 700, h: 320},
+      ink: "black",
+      metrics: %{}
+    }
+
+    unrecognized_outcome =
+      Map.merge(base, %{
+        selection_outcome: "reviewer_override",
+        readability_thresholds_met: false,
+        readability_rejections: ["local_contrast_percentile"]
+      })
+
+    contradicted_pass =
+      Map.merge(base, %{
+        selection_outcome: Result.threshold_pass_outcome(),
+        readability_thresholds_met: false,
+        readability_rejections: ["local_contrast_percentile"]
+      })
+
+    absent_outcome = Map.merge(base, %{readability_thresholds_met: false})
+
+    for quality <- [unrecognized_outcome, contradicted_pass, absent_outcome] do
+      assert :ok = Composition.cache_placement(raw, box, quality)
+      assert {:ok, cached} = Composition.cached_placement(raw)
+
+      decoded = cached.composition_quality
+      refute decoded.selection_outcome == Result.threshold_pass_outcome()
+      refute decoded.selection_outcome in Result.selection_outcomes()
+      refute decoded.readability_thresholds_met
+    end
+  end
+
+  test "a below-threshold fallback backed by its own evidence still decodes", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    quality = %{
+      contract_version: Policy.contract_version(),
+      candidate_id: "candidate-7",
+      final_rect: %{x: 140, y: 160, w: 700, h: 320},
+      ink: "white",
+      selection_outcome: Result.fallback_outcome(),
+      readability_thresholds_met: false,
+      readability_rejections: ["local_contrast_percentile"],
+      metrics: %{}
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, quality)
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    assert cached.composition_quality.selection_outcome == Result.fallback_outcome()
+    assert cached.composition_quality.ink == :white
+  end
+
+  test "an ink this build cannot produce decodes as unrecorded, not as black", %{raw: raw} do
+    box = %{
+      bounding_box: [100, 120, 350, 460],
+      text_align: :left,
+      vertical_align: :top,
+      source: :model
+    }
+
+    quality = %{
+      contract_version: Policy.contract_version(),
+      candidate_id: "candidate-7",
+      final_rect: %{x: 140, y: 160, w: 700, h: 320},
+      ink: "translucent_white",
+      selection_outcome: Result.threshold_pass_outcome(),
+      readability_thresholds_met: true,
+      readability_rejections: [],
+      metrics: %{}
+    }
+
+    assert :ok = Composition.cache_placement(raw, box, quality)
+    assert {:ok, cached} = Composition.cached_placement(raw)
+
+    refute cached.composition_quality.ink == :black
+    assert cached.composition_quality.ink == nil
+  end
+
+  test "provenance only ever emits values the decoder accepts" do
+    provenance = Result.provenance(fallback_result())
+
+    assert provenance.selection_outcome in Result.selection_outcomes()
+    assert provenance.ink in Result.ink_labels()
+  end
+
   test "a superseded deterministic contract is invalidated on read", %{raw: raw} do
     box = %{
       bounding_box: [100, 120, 350, 460],

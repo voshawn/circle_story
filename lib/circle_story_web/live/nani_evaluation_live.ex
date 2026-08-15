@@ -14,11 +14,13 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   alias CircleStory.Books.CharacterSelector.Gemini, as: SelectorGemini
   alias CircleStory.Books.Composition.ImageOps
-  alias CircleStory.Books.Composition.Quality.{Attempts, Diagnostics}
+  alias CircleStory.Books.Composition.Quality.{Attempts, Diagnostics, Result}
   alias CircleStory.Books.Templates.NanisMagicThread
 
   @source_extensions ~w(.png .jpg .jpeg .webp)
   @pipeline_task :nani_pipeline
+  @threshold_pass_outcome Result.threshold_pass_outcome()
+  @fallback_outcome Result.fallback_outcome()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -803,16 +805,16 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
 
   Transparent black/white attempts are reported together. A below-threshold
   fallback is explicit and retains the glyph-mask contrast evidence that ranked
-  it without exposing story text, renderer payloads, paths, or source art.
+  it without exposing story text, renderer payloads, paths, or source art. Only
+  a recorded threshold pass reads as one; anything else is flagged for review.
   """
   def composition_quality(assigns) do
     assigns =
       assigns
       |> assign(:attempts, Map.get(assigns.quality, :attempts) || %{})
       |> assign(
-        :fallback?,
-        Map.get(assigns.quality, :selection_outcome) ==
-          "below_threshold_transparent_fallback"
+        :preferred?,
+        Map.get(assigns.quality, :selection_outcome) == @threshold_pass_outcome
       )
 
     ~H"""
@@ -820,16 +822,16 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       id={@id}
       class={[
         "mt-2 rounded-xl border p-3",
-        if(@fallback?,
-          do: "border-amber-300 bg-amber-50 text-amber-950",
-          else: "border-emerald-200 bg-emerald-50 text-emerald-950"
+        if(@preferred?,
+          do: "border-emerald-200 bg-emerald-50 text-emerald-950",
+          else: "border-amber-300 bg-amber-50 text-amber-950"
         )
       ]}
     >
       <p class={["font-semibold"]}>
-        Deterministic composition · transparent {format_quality_ink(@quality.ink)} text
+        Deterministic composition · {format_quality_ink(@quality.ink)}
       </p>
-      <p class={["font-semibold", @fallback? && "text-amber-800"]}>
+      <p class={["font-semibold", not @preferred? && "text-amber-800"]}>
         {format_quality_outcome(@quality.selection_outcome)}
       </p>
       <p>
@@ -849,7 +851,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
         worst line p05 {format_quality_metric(@quality.metrics.worst_line_p05)}:1 ·
         edge {format_quality_percent(@quality.metrics.edge_density)}
       </p>
-      <p :if={@fallback?}>
+      <p :if={not @preferred?}>
         Selected threshold misses: {format_readability_rejections(
           Map.get(@quality, :readability_rejections, [])
         )}
@@ -862,7 +864,7 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
       </p>
       <p class={[
         "break-all text-[0.65rem]",
-        if(@fallback?, do: "text-amber-800/75", else: "text-emerald-800/75")
+        if(@preferred?, do: "text-emerald-800/75", else: "text-amber-800/75")
       ]}>
         {@quality.contract_version} · {@quality.candidate_id} · {format_quality_count(
           Map.get(@quality, :scored_count)
@@ -1047,14 +1049,17 @@ defmodule CircleStoryWeb.NaniEvaluationLive do
   defp format_quality_count(value) when is_integer(value), do: Integer.to_string(value)
   defp format_quality_count(_), do: "—"
 
-  defp format_quality_ink(:white), do: "white"
-  defp format_quality_ink("white"), do: "white"
-  defp format_quality_ink(_ink), do: "black"
+  defp format_quality_ink(ink) when ink in [:white, "white"], do: "transparent white text"
+  defp format_quality_ink(ink) when ink in [:black, "black"], do: "transparent black text"
+  defp format_quality_ink(_ink), do: "transparent text · ink not recorded"
 
-  defp format_quality_outcome("below_threshold_transparent_fallback"),
+  defp format_quality_outcome(@fallback_outcome),
     do: "Below preferred readability thresholds · best geometry-safe transparent result published"
 
-  defp format_quality_outcome(_outcome), do: "Preferred readability thresholds met"
+  defp format_quality_outcome(@threshold_pass_outcome), do: "Preferred readability thresholds met"
+
+  defp format_quality_outcome(_outcome),
+    do: "Selection outcome not recorded · treat as below preferred readability thresholds"
 
   defp format_readability_rejections([]), do: "none recorded"
   defp format_readability_rejections(reasons), do: Enum.join(reasons, ", ")

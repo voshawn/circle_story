@@ -153,6 +153,16 @@ path, or photo data. The compatibility treatment field is fixed to `none`; it
 cannot encode a visual layer. Superseded contract versions are ignored for
 quality display.
 
+Reading a sidecar is fail-closed against its single producer,
+`Quality.Result.provenance/1`. `readability_rejections` keeps only the reasons
+`Quality.Scorer.readability_reasons/0` can produce, `ink` keeps only the labels
+`Result.ink_labels/0` emits, and `selection_outcome` keeps only the outcomes
+`Result.selection_outcomes/0` emits. A missing or unknown value decodes as
+unrecorded rather than as a default, and a persisted `threshold_pass` whose own
+`readability_thresholds_met`/`readability_rejections` evidence contradicts it is
+also treated as unrecorded. A below-threshold publish therefore cannot be read
+back — or displayed — as a clean pass.
+
 Renderer and image-library terms reaching the composition-quality diagnostic
 paths — persisted attempt evidence, mask-render errors, quality/measurement
 failure reasons, and the unrecognized-reason catch-all in the evaluation UI —
@@ -182,6 +192,11 @@ The development evaluation panel uses two explicit success outcomes:
 - **Below preferred readability thresholds · best geometry-safe transparent
   result published**: every geometry-safe transparent candidate missed at least
   one readability threshold, so the deterministic fallback was published.
+
+Only the first reads as a pass, in green. Anything else — including a sidecar
+whose outcome decoded as unrecorded — is shown in amber as **Selection outcome
+not recorded · treat as below preferred readability thresholds**, with the
+threshold-miss line, so an unreadable record is reviewed rather than trusted.
 
 For both outcomes the panel shows black/white ink, selected geometry, fit,
 contrast/edge metrics, scan counts, and bounded rejection classes. It never

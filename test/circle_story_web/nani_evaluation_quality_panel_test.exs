@@ -66,8 +66,32 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
     assert html =~ "transparent black text"
     assert html =~ "Preferred readability thresholds met"
     assert html =~ "Transparent black/white attempts: 1/4 met thresholds"
+    assert html =~ "bg-emerald-50"
     refute html =~ "Selected threshold misses"
     refute html =~ "Mask render failures"
+  end
+
+  test "an unrecorded selection outcome is never presented as a threshold pass" do
+    html =
+      render_component(&NaniEvaluationLive.composition_quality/1, %{
+        id: "composition-quality-inner-6",
+        quality:
+          quality(
+            ink: nil,
+            selection_outcome: "unrecorded",
+            readability_thresholds_met: false,
+            readability_rejections: []
+          )
+      })
+
+    refute html =~ "Preferred readability thresholds met"
+    assert html =~ "Selection outcome not recorded"
+    assert html =~ "treat as below preferred readability thresholds"
+    assert html =~ "Selected threshold misses: none recorded"
+    assert html =~ "ink not recorded"
+    refute html =~ "transparent black text"
+    assert html =~ "bg-amber-50"
+    refute html =~ "bg-emerald-50"
   end
 
   test "the panel reports glyph geometry only, with no second treatment rectangle" do

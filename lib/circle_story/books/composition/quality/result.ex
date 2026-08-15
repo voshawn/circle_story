@@ -3,6 +3,10 @@ defmodule CircleStory.Books.Composition.Quality.Result do
 
   alias CircleStory.Books.Composition.Quality.{Attempts, Candidate, Diagnostics}
 
+  @threshold_pass "threshold_pass"
+  @below_threshold_transparent_fallback "below_threshold_transparent_fallback"
+  @ink_labels ["black", "white"]
+
   @enforce_keys [:candidate, :contract_version, :candidate_count, :rejected_count]
   defstruct @enforce_keys ++
               [
@@ -22,6 +26,28 @@ defmodule CircleStory.Books.Composition.Quality.Result do
           transparent: Attempts.t(),
           mask_render_errors: [{String.t(), term()}]
         }
+
+  @doc """
+  The selection outcomes `provenance/1` can persist.
+
+  Consumers that decode a sidecar must derive their allowlist from here and
+  treat anything else as unrecorded, so a newly added outcome cannot be read
+  back as a clean threshold pass.
+  """
+  @spec selection_outcomes() :: [String.t()]
+  def selection_outcomes, do: [@threshold_pass, @below_threshold_transparent_fallback]
+
+  @doc "The outcome naming a publish that met the preferred readability thresholds."
+  @spec threshold_pass_outcome() :: String.t()
+  def threshold_pass_outcome, do: @threshold_pass
+
+  @doc "The outcome naming a published below-threshold transparent fallback."
+  @spec fallback_outcome() :: String.t()
+  def fallback_outcome, do: @below_threshold_transparent_fallback
+
+  @doc "The ink labels `provenance/1` can persist."
+  @spec ink_labels() :: [String.t()]
+  def ink_labels, do: @ink_labels
 
   @doc "Compact provenance suitable for the placement sidecar and development UI."
   @spec provenance(t()) :: map()
@@ -103,9 +129,9 @@ defmodule CircleStory.Books.Composition.Quality.Result do
   defp ink_label(:white), do: "white"
 
   defp selection_outcome(%{selection_outcome: :below_threshold_transparent_fallback}),
-    do: "below_threshold_transparent_fallback"
+    do: @below_threshold_transparent_fallback
 
-  defp selection_outcome(_candidate), do: "threshold_pass"
+  defp selection_outcome(_candidate), do: @threshold_pass
 
   defp metric(candidate, name), do: candidate.metrics |> Map.get(name) |> round_metric()
 

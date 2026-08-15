@@ -26,15 +26,12 @@ defmodule CircleStory.BackingLayerAssertions do
   """
   @spec assert_transparent_text_box(String.t()) :: :ok
   def assert_transparent_text_box(html) do
-    boxes = query(html, ".fit-text")
+    document = LazyHTML.from_fragment(html)
 
-    assert Enum.any?(boxes),
+    assert Enum.any?(LazyHTML.query(document, ".fit-text")),
            "expected the rendered page to publish text in a .fit-text box"
 
-    scope = scoped_elements(html, ".fit-text")
-    refute_inline_fills(scope)
-    refute_stylesheet_fills(html, scope)
-    :ok
+    refute_fills(document, ".fit-text")
   end
 
   @doc """
@@ -45,9 +42,13 @@ defmodule CircleStory.BackingLayerAssertions do
   """
   @spec assert_no_fill_anywhere(String.t(), String.t()) :: :ok
   def assert_no_fill_anywhere(html, selector \\ "*") do
-    scope = scoped_elements(html, selector)
+    html |> LazyHTML.from_fragment() |> refute_fills(selector)
+  end
+
+  defp refute_fills(document, selector) do
+    scope = scoped_elements(document, selector)
     refute_inline_fills(scope)
-    refute_stylesheet_fills(html, scope)
+    refute_stylesheet_fills(document, scope)
     :ok
   end
 
@@ -60,57 +61,82 @@ defmodule CircleStory.BackingLayerAssertions do
     end
   end
 
-  defp refute_stylesheet_fills(html, scope) do
-    document = LazyHTML.from_fragment(html)
-
+  defp refute_stylesheet_fills(document, scope) do
     for style <- LazyHTML.query(document, "style"),
         {selector, declarations} <- rules(LazyHTML.text(style)),
         {property, value} <- declarations,
         property in @fill_properties,
-        stylesheet_rule_reaches_scope?(document, selector, scope) do
+        stylesheet_rule_reaches_scope?(selector, scope) do
       flunk("stylesheet rule #{selector} paints #{property}:#{value} behind composed text")
     end
   end
 
-  defp scoped_elements(html, selector) do
-    document = LazyHTML.from_fragment(html)
-
+  defp scoped_elements(document, selector) do
     document
     |> LazyHTML.query(selector)
     |> Enum.flat_map(fn root -> [root | Enum.to_list(LazyHTML.query(root, "*"))] end)
-    |> Enum.uniq()
   end
 
-  defp stylesheet_rule_reaches_scope?(document, selector, scope) do
-    scope_html = MapSet.new(scope, &LazyHTML.to_html/1)
-
-    selector
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.any?(fn individual_selector ->
-      Enum.any?(LazyHTML.query(document, individual_selector), fn element ->
-        MapSet.member?(scope_html, LazyHTML.to_html(element))
-      end)
-    end)
+  # Membership is decided by matching the selector against each scoped node in
+  # place, so the node keeps its ancestors and two structurally identical
+  # elements in different parts of the page stay distinguishable.
+  defp stylesheet_rule_reaches_scope?(selector, scope) do
+    Enum.any?(scope, &selector_matches?(&1, selector))
   end
 
-  defp query(html, selector), do: html |> LazyHTML.from_fragment() |> LazyHTML.query(selector)
+  defp selector_matches?(element, selector) do
+    element |> LazyHTML.filter(selector) |> Enum.any?()
+  rescue
+    # A selector this parser cannot evaluate is treated as reaching the scope:
+    # an unreadable rule must not be a way to paint behind the text unnoticed.
+    ArgumentError -> true
+  end
 
   defp describe(element) do
     classes = element |> LazyHTML.attribute("class") |> List.first() || "element"
     "<#{classes}>"
   end
 
-  defp rules(css) do
-    css
-    |> String.split("}")
-    |> Enum.flat_map(fn block ->
-      case String.split(block, "{", parts: 2) do
-        [selector, body] -> [{String.trim(selector), declarations(body)}]
-        _ -> []
-      end
-    end)
+  # Blocks are read with brace tracking rather than a naive split, so a rule
+  # nested inside an at-rule (`@media print { .fit-text { background:#fff } }`)
+  # is still parsed as a selector with declarations. An at-rule's own
+  # declarations describe the page or a font, not an element in scope, so only
+  # its nested rules are collected.
+  defp rules(css), do: css |> strip_comments() |> parse_rules("", [])
+
+  defp strip_comments(css), do: String.replace(css, ~r|/\*.*?\*/|s, " ")
+
+  defp parse_rules("", _prelude, rules), do: Enum.reverse(rules)
+
+  defp parse_rules(<<"{", rest::binary>>, prelude, rules) do
+    {body, remainder} = take_block(rest, 0, "")
+    parse_rules(remainder, "", collect_rule(String.trim(prelude), body, rules))
+  end
+
+  defp parse_rules(<<"}", rest::binary>>, _prelude, rules), do: parse_rules(rest, "", rules)
+
+  defp parse_rules(<<character::utf8, rest::binary>>, prelude, rules),
+    do: parse_rules(rest, prelude <> <<character::utf8>>, rules)
+
+  defp take_block("", _depth, body), do: {body, ""}
+  defp take_block(<<"}", rest::binary>>, 0, body), do: {body, rest}
+
+  defp take_block(<<"}", rest::binary>>, depth, body),
+    do: take_block(rest, depth - 1, body <> "}")
+
+  defp take_block(<<"{", rest::binary>>, depth, body),
+    do: take_block(rest, depth + 1, body <> "{")
+
+  defp take_block(<<character::utf8, rest::binary>>, depth, body),
+    do: take_block(rest, depth, body <> <<character::utf8>>)
+
+  defp collect_rule(selector, body, rules) do
+    cond do
+      String.contains?(body, "{") -> Enum.reverse(parse_rules(body, "", [])) ++ rules
+      String.starts_with?(selector, "@") -> rules
+      selector == "" -> rules
+      true -> [{selector, declarations(body)} | rules]
+    end
   end
 
   defp declarations(css) do
