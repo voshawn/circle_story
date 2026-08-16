@@ -397,6 +397,271 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert Enum.all?(rects, fn {_origin, rect} -> rect.x >= 400 end)
   end
 
+  test "bounded transform composition retains baselines and represents both depth-two families" do
+    seed = %{x: 520, y: 80, w: 160, h: 160}
+    policy = test_policy(rectangle_limit: 34)
+    bounds = Policy.bounds_for_seed(policy, seed)
+
+    context = %Context{
+      image: Image.new!(800, 400, color: :white),
+      content: %{text: "neutral words"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: bounds,
+      safe_canvas: bounds
+    }
+
+    rects = Candidates.candidate_rects(context)
+    labels = Enum.map(rects, fn {label, _rect} -> to_string(label) end)
+
+    assert length(rects) == policy.rectangle_limit
+    assert rects |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == length(rects)
+    assert "seed" in labels
+    assert "grow_left" in labels
+    assert "translate_left" in labels
+    assert "seed>wrap_80_left" in labels
+    assert "seed>wrap_80_center" in labels
+    assert "seed>wrap_80_right" in labels
+    assert "seed>compact_90_right_bottom" in labels
+    assert "grow_left>wrap_80_left" in labels
+    assert "translate_left>wrap_80_left" in labels
+
+    rects_by_label = Map.new(rects, fn {label, rect} -> {to_string(label), rect} end)
+
+    assert Geometry.contains?(
+             Map.fetch!(rects_by_label, "grow_left"),
+             Map.fetch!(rects_by_label, "grow_left>wrap_80_left")
+           )
+
+    assert Geometry.contains?(
+             Map.fetch!(rects_by_label, "translate_left"),
+             Map.fetch!(rects_by_label, "translate_left>wrap_80_left")
+           )
+
+    assert Enum.all?(labels, fn label -> length(String.split(label, ">")) <= 2 end)
+
+    for label <- ["grow_left>wrap_80_left", "translate_left>wrap_80_left"] do
+      composed =
+        evaluated_candidate(
+          "composed",
+          0,
+          Map.fetch!(rects_by_label, label),
+          36,
+          []
+        )
+        |> Map.put(:origin, label)
+
+      assert {:ok, selected} = Selection.choose([composed], seed, policy)
+
+      provenance =
+        %Result{
+          candidate: selected,
+          contract_version: policy.contract_version,
+          candidate_count: 1,
+          rejected_count: 0
+        }
+        |> Result.provenance()
+
+      assert provenance.adjustment == label
+    end
+  end
+
+  test "a safe-edge pinned seed still composes a non-degenerate chain for both families" do
+    policy = Policy.new(:cover)
+    front = Layout.front_region_local()
+
+    seed = Layout.denormalize([60, 0, 450, 400], front, min_w_frac: 0.55)
+    bounds = Policy.bounds_for_seed(policy, seed)
+
+    # The safe-inset clamp inside `denormalize/3` pins a left-leaning model box
+    # to exactly the hard left bound, which is where a leftward growth or
+    # translation base collapses back onto the seed.
+    assert seed.x == bounds.x
+
+    context = %Context{
+      image: Image.new!(front.w, front.h, color: :white),
+      content: %{text: "neutral words"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: bounds,
+      safe_canvas: bounds
+    }
+
+    rects = Candidates.candidate_rects(context)
+    labels = Enum.map(rects, fn {label, _rect} -> to_string(label) end)
+    rects_by_label = Map.new(rects, fn {label, rect} -> {to_string(label), rect} end)
+
+    assert length(rects) <= policy.rectangle_limit
+    assert rects |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == length(rects)
+    assert Enum.all?(rects, fn {_label, rect} -> Geometry.contains?(bounds, rect) end)
+
+    # The leftward bases are the degenerate ones here: they clamp straight back
+    # onto the seed, so neither they nor any chain built on them may appear.
+    refute "translate_left" in labels
+    refute Enum.any?(labels, &String.starts_with?(&1, "translate_left>"))
+
+    chains = Enum.filter(labels, &String.contains?(&1, ">"))
+    assert Enum.count(chains, &String.starts_with?(&1, "seed>")) == 15
+
+    assert [growth_chain, translation_chain] =
+             Enum.reject(chains, &String.starts_with?(&1, "seed>"))
+
+    assert String.starts_with?(growth_chain, "grow") or
+             String.starts_with?(growth_chain, "safe_canvas")
+
+    assert String.starts_with?(translation_chain, "translate")
+
+    for chain <- [growth_chain, translation_chain] do
+      [base, _operation] = String.split(chain, ">")
+      chain_rect = Map.fetch!(rects_by_label, chain)
+
+      assert Geometry.contains?(Map.fetch!(rects_by_label, base), chain_rect)
+
+      composed =
+        "composed"
+        |> evaluated_candidate(0, chain_rect, 36, [])
+        |> Map.put(:origin, chain)
+
+      assert {:ok, selected} = Selection.choose([composed], seed, policy)
+
+      provenance =
+        %Result{
+          candidate: selected,
+          contract_version: policy.contract_version,
+          candidate_count: 1,
+          rejected_count: 0
+        }
+        |> Result.provenance()
+
+      assert provenance.adjustment == chain
+    end
+  end
+
+  test "text alignment changes glyph evaluation but not rectangle generation or seed fidelity" do
+    seed = %{x: 520, y: 80, w: 160, h: 160}
+
+    policy =
+      test_policy(
+        candidate_transforms: [:wrap],
+        rectangle_limit: 15,
+        alignments: [:seed],
+        valignments: [:seed]
+      )
+
+    bounds = Policy.bounds_for_seed(policy, seed)
+
+    context = %Context{
+      image: Image.new!(800, 400, color: :white),
+      content: %{text: "neutral words"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: bounds,
+      safe_canvas: bounds
+    }
+
+    left_top = %{placement() | text_align: :left, vertical_align: :top}
+    right_bottom = %{placement() | text_align: :right, vertical_align: :bottom}
+    left_context = %{context | placement: left_top}
+    right_context = %{context | placement: right_bottom}
+
+    assert Candidates.candidate_rects(left_context) == Candidates.candidate_rects(right_context)
+    assert {:ok, left_generated} = Candidates.generate(left_context)
+    assert {:ok, right_generated} = Candidates.generate(right_context)
+
+    assert Enum.map(left_generated.candidates, &{&1.origin, &1.rect}) ==
+             Enum.map(right_generated.candidates, &{&1.origin, &1.rect})
+
+    assert Enum.all?(left_generated.candidates, &(&1.align == :left and &1.valign == :top))
+    assert Enum.all?(right_generated.candidates, &(&1.align == :right and &1.valign == :bottom))
+
+    left_fidelity =
+      Enum.map(left_generated.candidates, &Geometry.seed_fidelity(seed, &1.rect))
+
+    right_fidelity =
+      Enum.map(right_generated.candidates, &Geometry.seed_fidelity(seed, &1.rect))
+
+    assert left_fidelity == right_fidelity
+  end
+
+  test "contained wrap positions have equal seed fidelity without a center preference" do
+    seed = %{x: 100, y: 100, w: 200, h: 120}
+    left = Geometry.resize_within(seed, 0.8, 1.0, :left, :top)
+    center = Geometry.resize_within(seed, 0.8, 1.0, :center, :top)
+    right = Geometry.resize_within(seed, 0.8, 1.0, :right, :top)
+
+    assert left == %{x: 100, y: 100, w: 160, h: 120}
+    assert center == %{x: 120, y: 100, w: 160, h: 120}
+    assert right == %{x: 140, y: 100, w: 160, h: 120}
+    assert Geometry.seed_fidelity(seed, left) == 0.8
+    assert Geometry.seed_fidelity(seed, center) == 0.8
+    assert Geometry.seed_fidelity(seed, right) == 0.8
+
+    grown = %{x: 80, y: 80, w: 240, h: 160}
+    translated = Geometry.translate(seed, 40, 0, %{x: 0, y: 0, w: 500, h: 400})
+
+    assert Geometry.seed_fidelity(seed, grown) == Geometry.area(seed) / Geometry.area(grown)
+    assert Geometry.seed_fidelity(seed, translated) < Geometry.seed_fidelity(seed, left)
+    assert Geometry.seed_fidelity(seed, grown) < Geometry.seed_fidelity(seed, left)
+  end
+
+  test "rectangle, measurement, finalist, and glyph-scan work remain explicitly bounded" do
+    seed = %{x: 520, y: 80, w: 160, h: 160}
+
+    policy =
+      Policy.new(:inner,
+        dimensions: {800, 400},
+        outer_inset: 20,
+        internal_inset: 20,
+        growth_step: 32,
+        growth_steps: 2,
+        map_cell_size: 16,
+        rectangle_limit: 34
+      )
+
+    bounds = Policy.bounds_for_seed(policy, seed)
+    art = Image.new!(800, 400, color: :white)
+
+    context = %Context{
+      image: art,
+      content: %{text: "neutral words"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: ConvergedFitRenderer,
+      bounds: bounds,
+      safe_canvas: bounds,
+      safety_map: safety_map(art, policy)
+    }
+
+    assert {:ok, generated} = Candidates.generate(context)
+    rectangle_count = generated.candidates |> Enum.map(& &1.rect) |> Enum.uniq() |> length()
+    assert rectangle_count == policy.rectangle_limit
+    assert length(generated.candidates) == policy.rectangle_limit * 3 * 3 * 3
+
+    assert {:ok, measured} = Candidates.measure(generated)
+    assert length(measured.measured) == length(generated.candidates)
+    assert {:ok, preselected} = Candidates.select_finalists(measured)
+    assert length(preselected.finalists) == policy.finalist_limit
+
+    assert {:ok, evaluated} =
+             Quality.run_steps(%{preselected | renderer: SolidMaskRenderer}, [
+               {Quality, :evaluate_finalists}
+             ])
+
+    assert length(evaluated.evaluated) == 2 * policy.finalist_limit
+
+    assert evaluated.evaluated |> Enum.map(& &1.ink) |> Enum.frequencies() == %{
+             black: 10,
+             white: 10
+           }
+  end
+
   test "a fold-crossing seed is intersected with one page instead of consuming its maximum" do
     policy = test_policy()
     crossing = %{x: 100, y: 40, w: 600, h: 220}
@@ -721,7 +986,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
           readability: 0.0,
           font_size: 10.0,
           compactness: 0.0,
-          seed_proximity: 0.0,
+          seed_fidelity: 0.0,
           whitespace_balance: 0.0,
           edge_quietness: 0.0
         }
@@ -747,7 +1012,7 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
           readability: 0.0,
           font_size: 0.0,
           compactness: 0.0,
-          seed_proximity: 0.0,
+          seed_fidelity: 0.0,
           whitespace_balance: 0.0,
           edge_quietness: 0.0
         }

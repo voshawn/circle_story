@@ -33,8 +33,15 @@ configurable list of one-argument steps:
    contrast maps plus a local edge proxy.
 2. `Regions.expand/1` grows from the seed in all four directions. Sustained
    unsafe contrast or edge strips stop growth; isolated cells are tolerated.
-3. `Candidates.generate/1` searches a finite role-aware set of region sizes,
-   wraps, translations, horizontal/vertical anchors, and font caps.
+3. `Candidates.generate/1` searches bounded transform chains of depth at most
+   two. The first operation is identity, one safety-approved growth, or one
+   safety-approved translation. The optional second operation places an 80%
+   width wrap, 90% width wrap, or 90% × 90% compact rectangle wholly inside
+   that base. Width wraps use left/center/right positions; compact rectangles
+   also use top/middle/bottom positions. Geometry is deduplicated before the
+   policy's fixed rectangle budget is applied. Model `text_align` and
+   `vertical_align` values are used only later to align glyphs inside each
+   generated rectangle; they never position rectangles.
 4. `BrowserRenderer.measure/3` fits all candidates in one Chrome document and
    returns actual font size, line boxes/count, scroll geometry, and overflow.
 5. The best line-map candidates become finalists. Chrome renders one exact glyph
@@ -73,7 +80,10 @@ the tile with the largest low-contrast fraction are often different, and either
 one removes a candidate from the preferred set.
 
 Passing candidates retain named soft contributions for readability margin, font
-size, compactness, seed proximity, whitespace balance, and edge quietness. A
+size, compactness, seed fidelity, whitespace balance, and edge quietness. Seed
+fidelity is rectangle intersection-over-union with the original placement seed. It
+compares growths, translations, and contained wraps without consulting text
+alignment, and gives equal fidelity to equal-size left/center/right wraps. A
 passing transparent candidate always wins over a below-threshold candidate;
 soft weights cannot reverse that phase boundary.
 
@@ -133,10 +143,12 @@ the internal glyph inset still keeps rendered ink away from the fold boundary.
 
 The original placement box and `model | fallback | unknown` source remain in
 the bbox sidecar. Successful composition writes the
-`composition-quality-v2` object with:
+`composition-quality-v3` object with:
 
-- final geometry, anchors, fit, ink, and the compatibility value `treatment:
-  "none"`;
+- final geometry, glyph alignment, fit, ink, and the compatibility value
+  `treatment: "none"`;
+- a privacy-safe `adjustment` transform-chain label such as
+  `grow_left>wrap_80_center`; labels contain only fixed operation names;
 - `glyph_bounds`, plus the compatibility field `effect_bounds`, which is fixed
   to the same measured glyph rectangle because transparent text has no separate
   effect layer to bound; it is not displayed anywhere in the evaluation UI;
@@ -150,8 +162,9 @@ the bbox sidecar. Successful composition writes the
 
 The sidecar contains no text, prompt, image bytes, renderer document, source
 path, or photo data. The compatibility treatment field is fixed to `none`; it
-cannot encode a visual layer. Superseded contract versions are ignored for
-quality display.
+cannot encode a visual layer. Version 3 represents only bounded transform
+composition and seed-fidelity ranking; superseded contract versions and
+obsolete anchor-overload labels are ignored for quality display.
 
 Reading a sidecar is fail-closed against its single producer,
 `Quality.Result.provenance/1`. `readability_rejections` keeps only the reasons
@@ -213,7 +226,22 @@ Stage A adds **zero** placement, review, image, or other provider calls and adds
 no retry path. It uses the already supervised ChromicPDF and installed
 Image/libvips stack.
 
-Finalist work is bounded at exactly two transparent scans per successfully
+The default rectangle budget is 34: up to 17 retained seed/growth/translation
+baselines, all 15 reposition operations inside the seed, and one bounded
+composition from each growth and translation family. With the default three
+horizontal alignments, three vertical alignments, and three font caps, browser
+measurement is bounded at `34 × 3 × 3 × 3 = 918` candidates. This preserves
+all baseline and seed-wrap operations plus deterministic representation of both
+depth-two families without evaluating their Cartesian product.
+
+A family's single composition slot is spent on the first chain, in deterministic
+base and operation order, whose geometry is not already generated. A base that
+the safety bounds clamp back onto the seed — a leftward growth or translation of
+a seed already pinned to the hard left inset, for example — therefore cannot
+consume its family's slot with a duplicate rectangle. A family contributes
+nothing only when every one of its chains repeats geometry already present.
+
+Finalist work remains bounded at exactly two transparent scans per successfully
 rendered finalist mask: one black and one white. Worst case is therefore
 `2 x finalist_limit` full-resolution scans, reported as `scored_count` and
 `attempts.transparent.scanned`. Finalist preselection collapses candidates that

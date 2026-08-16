@@ -1,7 +1,27 @@
 defmodule CircleStory.Books.Composition.Quality.Candidates do
-  @moduledoc "Finite role-aware generation, browser-fit measurement, and finalist preselection."
+  @moduledoc "Bounded transform-chain generation, browser-fit measurement, and finalist preselection."
 
   alias CircleStory.Books.Composition.Quality.{Candidate, Context, Geometry, SafetyMap}
+
+  @depth_two_per_family_limit 1
+
+  @wrap_operations [
+    {"wrap_80_left", 0.8, 1.0, :left, :top},
+    {"wrap_80_center", 0.8, 1.0, :center, :top},
+    {"wrap_80_right", 0.8, 1.0, :right, :top},
+    {"wrap_90_left", 0.9, 1.0, :left, :top},
+    {"wrap_90_center", 0.9, 1.0, :center, :top},
+    {"wrap_90_right", 0.9, 1.0, :right, :top},
+    {"compact_90_left_top", 0.9, 0.9, :left, :top},
+    {"compact_90_left_middle", 0.9, 0.9, :left, :middle},
+    {"compact_90_left_bottom", 0.9, 0.9, :left, :bottom},
+    {"compact_90_center_top", 0.9, 0.9, :center, :top},
+    {"compact_90_center_middle", 0.9, 0.9, :center, :middle},
+    {"compact_90_center_bottom", 0.9, 0.9, :center, :bottom},
+    {"compact_90_right_top", 0.9, 0.9, :right, :top},
+    {"compact_90_right_middle", 0.9, 0.9, :right, :middle},
+    {"compact_90_right_bottom", 0.9, 0.9, :right, :bottom}
+  ]
 
   @spec generate(Context.t()) :: {:ok, Context.t()}
   def generate(%Context{} = context) do
@@ -160,16 +180,66 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
   end
 
   @doc false
-  @spec candidate_rects(Context.t()) :: [{atom(), map()}]
+  @spec candidate_rects(Context.t()) :: [{atom() | String.t(), map()}]
   def candidate_rects(%Context{} = context) do
     transforms = context.policy.candidate_transforms
+    seed_base = [{:seed, context.seed_rect}]
+    growth = if :grow in transforms, do: growth_rects(context), else: []
+    translations = if :translate in transforms, do: translated_rects(context), else: []
 
-    []
-    |> maybe_add(:seed in transforms, [{:seed, context.seed_rect}])
-    |> maybe_add(:grow in transforms, growth_rects(context))
-    |> maybe_add(:translate in transforms, translated_rects(context))
-    |> maybe_add(:wrap in transforms, wrapped_rects(context))
+    baseline =
+      []
+      |> maybe_add(:seed in transforms, seed_base)
+      |> Kernel.++(growth)
+      |> Kernel.++(translations)
+
+    {seed_wrapped, composable} =
+      if :wrap in transforms do
+        {Enum.to_list(wrap_chains(seed_base)), [growth, translations]}
+      else
+        {[], []}
+      end
+
+    baseline
+    |> Kernel.++(seed_wrapped)
     |> deduplicate_rects()
+    |> compose_families(composable)
+    |> Enum.take(context.policy.rectangle_limit)
+  end
+
+  defp compose_families(generated, families) do
+    seen = MapSet.new(generated, fn {_origin, rect} -> rect_key(rect) end)
+
+    {_seen, composed} =
+      Enum.reduce(families, {seen, []}, fn bases, {family_seen, acc} ->
+        {family_seen, chains} =
+          take_novel_chains(bases, family_seen, @depth_two_per_family_limit)
+
+        {family_seen, acc ++ chains}
+      end)
+
+    generated ++ composed
+  end
+
+  defp take_novel_chains(_bases, seen, limit) when limit <= 0, do: {seen, []}
+
+  defp take_novel_chains(bases, seen, limit) do
+    bases
+    |> wrap_chains()
+    |> Enum.reduce_while({seen, []}, fn {label, rect}, {chain_seen, acc} ->
+      key = rect_key(rect)
+
+      cond do
+        MapSet.member?(chain_seen, key) ->
+          {:cont, {chain_seen, acc}}
+
+        length(acc) + 1 < limit ->
+          {:cont, {MapSet.put(chain_seen, key), acc ++ [{label, rect}]}}
+
+        true ->
+          {:halt, {MapSet.put(chain_seen, key), acc ++ [{label, rect}]}}
+      end
+    end)
   end
 
   defp growth_rects(context) do
@@ -219,16 +289,25 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     ]
   end
 
-  defp wrapped_rects(context) do
-    [
-      {:wrap_narrow,
-       Geometry.resize_around_center(context.seed_rect, 0.8, 1.0, context.safe_canvas)},
-      {:wrap_comfortable,
-       Geometry.resize_around_center(context.seed_rect, 0.9, 1.0, context.safe_canvas)},
-      {:region_compact,
-       Geometry.resize_around_center(context.seed_rect, 0.9, 0.9, context.safe_canvas)}
-    ]
+  defp wrap_chains(bases) do
+    Stream.flat_map(bases, fn {base_label, base_rect} ->
+      Stream.map(@wrap_operations, fn
+        {operation, width_factor, height_factor, horizontal, vertical} ->
+          {
+            transform_chain_label(base_label, operation),
+            Geometry.resize_within(
+              base_rect,
+              width_factor,
+              height_factor,
+              horizontal,
+              vertical
+            )
+          }
+      end)
+    end)
   end
+
+  defp transform_chain_label(base_label, operation), do: "#{base_label}>#{operation}"
 
   # A renderer is an external boundary: an absent candidate id, or a field the
   # browser could not produce (a `NaN` fit font serializes as `null`), is a hard
@@ -286,19 +365,19 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
 
     fit_ratio = candidate.measure.font_size / context.policy.preferred_font
     compactness = Geometry.area(context.seed_rect) / Geometry.area(candidate.rect)
-    distance = Geometry.distance(context.seed_rect, candidate.rect)
+    seed_fidelity = Geometry.seed_fidelity(context.seed_rect, candidate.rect)
 
     score =
       (1 - best.unsafe_fraction) * 5 +
         min(best.mean_contrast / context.policy.target_contrast, 2) +
-        fit_ratio + compactness - best.edge_fraction - best.saliency_fraction -
-        distance / max(context.policy.growth_step * context.policy.growth_steps, 1)
+        fit_ratio + compactness + seed_fidelity - best.edge_fraction - best.saliency_fraction
 
     %{
       candidate
       | metrics: %{
           preselection_score: score,
           preferred_ink: ink,
+          seed_fidelity: seed_fidelity,
           map_black: black,
           map_white: white
         }
@@ -317,10 +396,12 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
   defp maybe_add(existing, true, values), do: existing ++ values
   defp maybe_add(existing, false, _values), do: existing
 
+  defp rect_key(rect), do: {rect.x, rect.y, rect.w, rect.h}
+
   defp deduplicate_rects(rects) do
     rects
     |> Enum.reduce({MapSet.new(), []}, fn {origin, rect}, {seen, acc} ->
-      key = {rect.x, rect.y, rect.w, rect.h}
+      key = rect_key(rect)
 
       if MapSet.member?(seen, key) do
         {seen, acc}

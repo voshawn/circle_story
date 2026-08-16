@@ -1,17 +1,19 @@
 defmodule CircleStory.Books.Composition.QualityTest do
   use ExUnit.Case, async: false
 
-  alias CircleStory.Books.Composition.Quality
+  alias CircleStory.Books.Composition.{Layout, Quality}
 
   alias CircleStory.Books.Composition.Quality.{
     BrowserRenderer,
     Candidate,
+    Geometry,
     Policy,
     Result,
     Scorer
   }
 
   @story "With fierce love she built a successful business, became a professor, and wrote her own story."
+  @neutral_text "Clear lines of type keep each sentence balanced, readable, and calm in open space for every reader."
 
   # Chrome takes a long nap between launch and its first DevTools reply on cold
   # CI machines, which blows through ChromicPDF's 5s pool defaults and fails
@@ -60,7 +62,7 @@ defmodule CircleStory.Books.Composition.QualityTest do
     policy = test_policy()
     seed = %{x: 480, y: 40, w: 280, h: 260}
     placement = placement(:left, :top)
-    content = %{text: @story}
+    content = %{text: @neutral_text}
     unsafe = candidate(seed, :left, :top)
 
     assert {:ok, measurements} = BrowserRenderer.measure([unsafe], content, :inner)
@@ -81,7 +83,8 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert selected.ink == :black
     assert selected.metrics.worst_tile_p10 >= policy.hard_contrast
     assert selected.metrics.worst_tile_low_contrast_fraction <= policy.max_low_contrast_fraction
-    assert selected.origin != :seed or selected.align != :left
+    assert selected.origin in ["seed>wrap_80_center", "seed>wrap_80_right"]
+    assert selected.rect.x > seed.x
     assert selected.measure.line_count >= 2
 
     provenance = Result.provenance(result)
@@ -94,6 +97,82 @@ defmodule CircleStory.Books.Composition.QualityTest do
     refute Map.has_key?(provenance, :image_path)
   end
 
+  test "page-8-style bounded left wrap beats the centered detailed-art counterfactual" do
+    normalized_seed = [650, 60, 930, 450]
+    seed = Layout.denormalize(normalized_seed, Layout.inner_region())
+    placement = placement(:left, :top) |> Map.put(:bounding_box, normalized_seed)
+    detail_x = 1_340
+    art = bounded_composition_art(detail_x)
+
+    policy =
+      Policy.new(:inner,
+        candidate_transforms: [:wrap],
+        rectangle_limit: 15,
+        alignments: [:seed],
+        valignments: [:seed],
+        font_caps: [64],
+        finalist_limit: 3
+      )
+
+    content = %{
+      text:
+        "Clear typography belongs in calm open space where every neutral sentence can wrap " <>
+          "with steady rhythm and generous breathing room beside a field of abstract detail."
+    }
+
+    assert seed == %{x: 221, y: 1219, w: 1433, h: 525}
+    left_wrap = Geometry.resize_within(seed, 0.8, 1.0, :left, :top)
+    centered_wrap = Geometry.resize_within(seed, 0.8, 1.0, :center, :top)
+    assert left_wrap == %{x: 221, y: 1219, w: 1146, h: 525}
+    assert centered_wrap == %{x: 365, y: 1219, w: 1146, h: 525}
+    assert centered_wrap.x + centered_wrap.w > detail_x
+
+    centered = %{candidate(centered_wrap, :left, :top) | id: "centered-counterfactual"}
+    assert {:ok, centered_measurements} = BrowserRenderer.measure([centered], content, :inner)
+    centered = %{centered | measure: Map.fetch!(centered_measurements, centered.id)}
+    assert {:ok, centered_mask} = BrowserRenderer.mask(centered, content, :inner)
+    scored_centered = Scorer.score(art, centered, centered_mask, policy, :black)
+
+    centered_glyph_right =
+      centered.rect.x + scored_centered.glyph_bounds.x + scored_centered.glyph_bounds.w
+
+    assert centered_glyph_right > detail_x
+    assert scored_centered.readability_rejections != []
+
+    assert {:ok, result} = Quality.optimize(art, content, placement, seed, policy: policy)
+    selected = result.candidate
+    bounds = Policy.bounds_for_seed(policy, seed)
+    global_glyph_right = selected.rect.x + selected.glyph_bounds.x + selected.glyph_bounds.w
+    global_glyph_bottom = selected.rect.y + selected.glyph_bounds.y + selected.glyph_bounds.h
+
+    assert selected.origin == "seed>wrap_80_left"
+    assert selected.rect == left_wrap
+    assert selected.selection_outcome == :threshold_pass
+    assert selected.ink == :black
+    assert selected.hard_rejections == []
+    assert selected.readability_rejections == []
+    assert selected.measure.font_size >= policy.min_font
+    refute selected.measure.overflow
+    refute selected.measure.clipped
+    assert selected.metrics.glyph_samples > 0
+    assert Geometry.contains?(bounds, selected.rect)
+    assert selected.rect.x >= policy.outer_inset
+    assert selected.rect.x + selected.rect.w <= div(elem(policy.dimensions, 0), 2)
+    assert selected.glyph_bounds.x >= selected.inset
+    assert selected.glyph_bounds.y >= selected.inset
+    assert global_glyph_right <= selected.rect.x + selected.rect.w - selected.inset
+    assert global_glyph_bottom <= selected.rect.y + selected.rect.h - selected.inset
+    assert global_glyph_right < detail_x
+    assert result.candidate_count == 15
+    assert result.scored_count <= 2 * policy.finalist_limit
+    assert result.transparent.passed > 0
+
+    provenance = Result.provenance(result)
+    assert provenance.adjustment == "seed>wrap_80_left"
+    assert provenance.contract_version == "composition-quality-v3"
+    assert provenance.selection_outcome == "threshold_pass"
+  end
+
   test "inverse light edge on dark art selects safe white text" do
     art =
       Image.new!(800, 400, color: :black)
@@ -101,7 +180,7 @@ defmodule CircleStory.Books.Composition.QualityTest do
 
     policy = test_policy()
     seed = %{x: 480, y: 40, w: 280, h: 260}
-    content = %{text: @story}
+    content = %{text: @neutral_text}
 
     assert {:ok, result} =
              Quality.optimize(art, content, placement(:left, :top), seed, policy: policy)
@@ -109,7 +188,8 @@ defmodule CircleStory.Books.Composition.QualityTest do
     assert result.candidate.hard_rejections == []
     assert result.candidate.ink == :white
     assert result.candidate.metrics.worst_tile_p10 >= policy.hard_contrast
-    assert result.candidate.origin != :seed or result.candidate.align != :left
+    assert result.candidate.origin in ["seed>wrap_80_center", "seed>wrap_80_right"]
+    assert result.candidate.rect.x > seed.x
   end
 
   test "busy mixed art publishes the best transparent fallback with contrast provenance" do
@@ -235,6 +315,32 @@ defmodule CircleStory.Books.Composition.QualityTest do
       inset: 20,
       origin: :seed
     }
+  end
+
+  defp bounded_composition_art(detail_x) do
+    {width, height} = Layout.inner_dims()
+    detail_width = div(width, 2) - detail_x
+
+    Image.from_svg!("""
+    <svg xmlns="http://www.w3.org/2000/svg" width="#{width}" height="#{height}">
+      <defs>
+        <linearGradient id="calm" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fffdf8"/>
+          <stop offset="1" stop-color="#f3efe6"/>
+        </linearGradient>
+        <pattern id="detail" width="24" height="24" patternUnits="userSpaceOnUse">
+          <rect width="12" height="12" fill="#111827"/>
+          <rect x="12" y="12" width="12" height="12" fill="#111827"/>
+          <rect x="12" width="12" height="12" fill="#f8fafc"/>
+          <rect y="12" width="12" height="12" fill="#f8fafc"/>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#calm)"/>
+      <rect x="#{detail_x}" y="1120" width="#{detail_width}" height="643" rx="28" fill="url(#detail)"/>
+      <circle cx="1560" cy="1040" r="90" fill="#d7c5a2"/>
+      <path d="M1390 1090 C1480 980 1650 980 1780 1110" fill="none" stroke="#64748b" stroke-width="18"/>
+    </svg>
+    """)
   end
 
   defp checkerboard(width, height, cell) do
