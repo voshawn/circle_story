@@ -56,7 +56,7 @@ defmodule CircleStory.Books.Composition.Quality.Result do
       contract_version: result.contract_version,
       candidate_id: candidate.id,
       final_rect: candidate.rect,
-      adjustment: Atom.to_string(candidate.origin),
+      adjustment: adjustment_label(candidate.origin),
       align: candidate.align,
       valign: candidate.valign,
       font_size: round_metric(candidate.measure.font_size),
@@ -124,6 +124,9 @@ defmodule CircleStory.Books.Composition.Quality.Result do
       h: candidate.glyph_bounds.h
     }
   end
+
+  defp adjustment_label(origin) when is_atom(origin), do: Atom.to_string(origin)
+  defp adjustment_label(origin) when is_binary(origin), do: origin
 
   defp ink_label(:black), do: "black"
   defp ink_label(:white), do: "white"

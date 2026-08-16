@@ -375,7 +375,7 @@ defmodule CircleStoryWeb.NaniEvaluationQualityPanelTest do
   defp quality(overrides \\ []) do
     Map.merge(
       %{
-        contract_version: "composition-quality-v2",
+        contract_version: "composition-quality-v3",
         candidate_id: "candidate-7",
         final_rect: %{x: 140, y: 160, w: 700, h: 320},
         adjustment: "translate_right",

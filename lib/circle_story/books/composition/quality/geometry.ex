@@ -44,16 +44,29 @@ defmodule CircleStory.Books.Composition.Quality.Geometry do
     rect |> Map.update!(:x, &(&1 + dx)) |> Map.update!(:y, &(&1 + dy)) |> clamp_rect(bounds)
   end
 
-  @spec resize_around_center(map(), number(), number(), map()) :: map()
-  def resize_around_center(rect, width_factor, height_factor, bounds) do
+  @type horizontal_position :: :left | :center | :right
+  @type vertical_position :: :top | :middle | :bottom
+
+  @doc "Resize and position a rectangle wholly inside its current base rectangle."
+  @spec resize_within(
+          map(),
+          number(),
+          number(),
+          horizontal_position(),
+          vertical_position()
+        ) :: map()
+  def resize_within(rect, width_factor, height_factor, horizontal, vertical) do
     width = max(round(rect.w * width_factor), 1)
     height = max(round(rect.h * height_factor), 1)
-    center_x = rect.x + rect.w / 2
-    center_y = rect.y + rect.h / 2
 
     clamp_rect(
-      %{x: round(center_x - width / 2), y: round(center_y - height / 2), w: width, h: height},
-      bounds
+      %{
+        x: positioned_origin(rect.x, rect.w, width, horizontal),
+        y: positioned_origin(rect.y, rect.h, height, vertical),
+        w: width,
+        h: height
+      },
+      rect
     )
   end
 
@@ -70,15 +83,27 @@ defmodule CircleStory.Books.Composition.Quality.Geometry do
     clamp_rect(candidate, bounds)
   end
 
-  @spec distance(map(), map()) :: float()
-  def distance(left, right) do
-    left_center = {left.x + left.w / 2, left.y + left.h / 2}
-    right_center = {right.x + right.w / 2, right.y + right.h / 2}
-    {lx, ly} = left_center
-    {rx, ry} = right_center
-    :math.sqrt(:math.pow(lx - rx, 2) + :math.pow(ly - ry, 2))
+  @doc "Intersection-over-union fidelity to the original model seed rectangle."
+  @spec seed_fidelity(map(), map()) :: float()
+  def seed_fidelity(seed, candidate) do
+    overlap = seed |> intersection(candidate) |> raw_area()
+    union = raw_area(seed) + raw_area(candidate) - overlap
+
+    if union > 0, do: overlap / union, else: 0.0
   end
 
   @spec area(map()) :: pos_integer()
   def area(rect), do: max(rect.w * rect.h, 1)
+
+  defp raw_area(nil), do: 0
+  defp raw_area(rect), do: max(rect.w, 0) * max(rect.h, 0)
+
+  defp positioned_origin(start, _span, _size, position) when position in [:left, :top],
+    do: start
+
+  defp positioned_origin(start, span, size, position) when position in [:center, :middle],
+    do: start + (span - size) / 2
+
+  defp positioned_origin(start, span, size, position) when position in [:right, :bottom],
+    do: start + span - size
 end

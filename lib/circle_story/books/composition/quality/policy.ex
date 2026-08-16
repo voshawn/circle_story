@@ -8,13 +8,13 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
 
   alias CircleStory.Books.Composition.Layout
 
-  @contract_version "composition-quality-v2"
+  @contract_version "composition-quality-v3"
 
   @default_weights %{
     readability: 4.0,
     font_size: 1.5,
     compactness: 1.2,
-    seed_proximity: 1.0,
+    seed_fidelity: 1.0,
     whitespace_balance: 0.8,
     edge_quietness: 0.5
   }
@@ -33,6 +33,7 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
     :growth_steps,
     :map_cell_size,
     :candidate_transforms,
+    :rectangle_limit,
     :alignments,
     :valignments,
     :finalist_limit,
@@ -108,6 +109,11 @@ defmodule CircleStory.Books.Composition.Quality.Policy do
       growth_steps: 3,
       map_cell_size: 32,
       candidate_transforms: [:seed, :grow, :translate, :wrap],
+      # At most 17 baseline rects + all 15 seed-wrap positions + one bounded
+      # composition from each growth/translation family. This is the smallest
+      # default that retains every baseline/seed-wrap operation and represents
+      # both depth-two families without a Cartesian-product search.
+      rectangle_limit: 34,
       alignments: [:seed, :center, :left, :right],
       valignments: [:seed, :middle, :top, :bottom],
       finalist_limit: 10,

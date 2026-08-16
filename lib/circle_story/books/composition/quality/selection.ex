@@ -26,11 +26,7 @@ defmodule CircleStory.Books.Composition.Quality.Selection do
       readability: min(candidate.metrics.worst_tile_p10 / policy.target_contrast, 2.0),
       font_size: min(candidate.measure.font_size / policy.preferred_font, 1.0),
       compactness: min(Geometry.area(seed_rect) / Geometry.area(candidate.rect), 1.5),
-      seed_proximity:
-        1 /
-          (1 +
-             Geometry.distance(seed_rect, candidate.rect) /
-               max(policy.growth_step, 1)),
+      seed_fidelity: Geometry.seed_fidelity(seed_rect, candidate.rect),
       whitespace_balance: whitespace_balance(margins),
       edge_quietness: max(1 - candidate.metrics.edge_density, 0)
     }

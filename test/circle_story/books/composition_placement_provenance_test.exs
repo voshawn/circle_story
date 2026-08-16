@@ -304,7 +304,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     }
 
     stale_quality = %{
-      contract_version: "composition-quality-v1",
+      contract_version: "composition-quality-v2",
       candidate_id: "stale",
       final_rect: %{x: 1, y: 1, w: 1, h: 1}
     }
