@@ -54,7 +54,7 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
       contract_version: Policy.contract_version(),
       candidate_id: "candidate-7",
       final_rect: %{x: 140, y: 160, w: 700, h: 320},
-      adjustment: "translate_right",
+      adjustment: "grow_left>wrap_80_center",
       align: :center,
       valign: :top,
       font_size: 61.25,
@@ -84,6 +84,9 @@ defmodule CircleStory.Books.CompositionPlacementProvenanceTest do
     assert cached.composition_quality.contract_version == Policy.contract_version()
     assert cached.composition_quality.final_rect == quality.final_rect
     assert cached.composition_quality.metrics.worst_tile_p10 == 6.2
+    # A depth-two transform-chain label is the only adjustment fact v3 persists,
+    # and it must survive the sidecar round-trip intact for the evaluation UI.
+    assert cached.composition_quality.adjustment == "grow_left>wrap_80_center"
 
     encoded = raw |> ImageOps.bbox_path() |> File.read!()
     refute encoded =~ "story_text"

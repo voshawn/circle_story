@@ -1,5 +1,5 @@
 defmodule CircleStory.Books.Composition.Quality.Candidates do
-  @moduledoc "Finite role-aware generation, browser-fit measurement, and finalist preselection."
+  @moduledoc "Bounded transform-chain generation, browser-fit measurement, and finalist preselection."
 
   alias CircleStory.Books.Composition.Quality.{Candidate, Context, Geometry, SafetyMap}
 
