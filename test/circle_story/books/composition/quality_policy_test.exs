@@ -468,6 +468,79 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     end
   end
 
+  test "a safe-edge pinned seed still composes a non-degenerate chain for both families" do
+    policy = Policy.new(:cover)
+    front = Layout.front_region_local()
+
+    seed = Layout.denormalize([60, 0, 450, 400], front, min_w_frac: 0.55)
+    bounds = Policy.bounds_for_seed(policy, seed)
+
+    # The safe-inset clamp inside `denormalize/3` pins a left-leaning model box
+    # to exactly the hard left bound, which is where a leftward growth or
+    # translation base collapses back onto the seed.
+    assert seed.x == bounds.x
+
+    context = %Context{
+      image: Image.new!(front.w, front.h, color: :white),
+      content: %{text: "neutral words"},
+      placement: placement(),
+      seed_rect: seed,
+      policy: policy,
+      renderer: nil,
+      bounds: bounds,
+      safe_canvas: bounds
+    }
+
+    rects = Candidates.candidate_rects(context)
+    labels = Enum.map(rects, fn {label, _rect} -> to_string(label) end)
+    rects_by_label = Map.new(rects, fn {label, rect} -> {to_string(label), rect} end)
+
+    assert length(rects) <= policy.rectangle_limit
+    assert rects |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == length(rects)
+    assert Enum.all?(rects, fn {_label, rect} -> Geometry.contains?(bounds, rect) end)
+
+    # The leftward bases are the degenerate ones here: they clamp straight back
+    # onto the seed, so neither they nor any chain built on them may appear.
+    refute "translate_left" in labels
+    refute Enum.any?(labels, &String.starts_with?(&1, "translate_left>"))
+
+    chains = Enum.filter(labels, &String.contains?(&1, ">"))
+    assert Enum.count(chains, &String.starts_with?(&1, "seed>")) == 15
+
+    assert [growth_chain, translation_chain] =
+             Enum.reject(chains, &String.starts_with?(&1, "seed>"))
+
+    assert String.starts_with?(growth_chain, "grow") or
+             String.starts_with?(growth_chain, "safe_canvas")
+
+    assert String.starts_with?(translation_chain, "translate")
+
+    for chain <- [growth_chain, translation_chain] do
+      [base, _operation] = String.split(chain, ">")
+      chain_rect = Map.fetch!(rects_by_label, chain)
+
+      assert Geometry.contains?(Map.fetch!(rects_by_label, base), chain_rect)
+
+      composed =
+        "composed"
+        |> evaluated_candidate(0, chain_rect, 36, [])
+        |> Map.put(:origin, chain)
+
+      assert {:ok, selected} = Selection.choose([composed], seed, policy)
+
+      provenance =
+        %Result{
+          candidate: selected,
+          contract_version: policy.contract_version,
+          candidate_count: 1,
+          rejected_count: 0
+        }
+        |> Result.provenance()
+
+      assert provenance.adjustment == chain
+    end
+  end
+
   test "text alignment changes glyph evaluation but not rectangle generation or seed fidelity" do
     seed = %{x: 520, y: 80, w: 160, h: 160}
 
@@ -575,7 +648,18 @@ defmodule CircleStory.Books.Composition.QualityPolicyTest do
     assert length(measured.measured) == length(generated.candidates)
     assert {:ok, preselected} = Candidates.select_finalists(measured)
     assert length(preselected.finalists) == policy.finalist_limit
-    assert 2 * length(preselected.finalists) <= 2 * policy.finalist_limit
+
+    assert {:ok, evaluated} =
+             Quality.run_steps(%{preselected | renderer: SolidMaskRenderer}, [
+               {Quality, :evaluate_finalists}
+             ])
+
+    assert length(evaluated.evaluated) == 2 * policy.finalist_limit
+
+    assert evaluated.evaluated |> Enum.map(& &1.ink) |> Enum.frequencies() == %{
+             black: 10,
+             white: 10
+           }
   end
 
   test "a fold-crossing seed is intersected with one page instead of consuming its maximum" do

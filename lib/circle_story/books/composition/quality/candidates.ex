@@ -193,23 +193,53 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
       |> Kernel.++(growth)
       |> Kernel.++(translations)
 
-    {seed_wrapped, growth_wrapped, translated_wrapped} =
+    {seed_wrapped, composable} =
       if :wrap in transforms do
-        {
-          wrapped_rects(seed_base),
-          wrapped_rects(growth, @depth_two_per_family_limit),
-          wrapped_rects(translations, @depth_two_per_family_limit)
-        }
+        {Enum.to_list(wrap_chains(seed_base)), [growth, translations]}
       else
-        {[], [], []}
+        {[], []}
       end
 
     baseline
     |> Kernel.++(seed_wrapped)
-    |> Kernel.++(growth_wrapped)
-    |> Kernel.++(translated_wrapped)
     |> deduplicate_rects()
+    |> compose_families(composable)
     |> Enum.take(context.policy.rectangle_limit)
+  end
+
+  defp compose_families(generated, families) do
+    seen = MapSet.new(generated, fn {_origin, rect} -> rect_key(rect) end)
+
+    {_seen, composed} =
+      Enum.reduce(families, {seen, []}, fn bases, {family_seen, acc} ->
+        {family_seen, chains} =
+          take_novel_chains(bases, family_seen, @depth_two_per_family_limit)
+
+        {family_seen, acc ++ chains}
+      end)
+
+    generated ++ composed
+  end
+
+  defp take_novel_chains(_bases, seen, limit) when limit <= 0, do: {seen, []}
+
+  defp take_novel_chains(bases, seen, limit) do
+    bases
+    |> wrap_chains()
+    |> Enum.reduce_while({seen, []}, fn {label, rect}, {chain_seen, acc} ->
+      key = rect_key(rect)
+
+      cond do
+        MapSet.member?(chain_seen, key) ->
+          {:cont, {chain_seen, acc}}
+
+        length(acc) + 1 < limit ->
+          {:cont, {MapSet.put(chain_seen, key), acc ++ [{label, rect}]}}
+
+        true ->
+          {:halt, {MapSet.put(chain_seen, key), acc ++ [{label, rect}]}}
+      end
+    end)
   end
 
   defp growth_rects(context) do
@@ -259,9 +289,8 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
     ]
   end
 
-  defp wrapped_rects(bases, limit \\ length(@wrap_operations)) do
-    bases
-    |> Stream.flat_map(fn {base_label, base_rect} ->
+  defp wrap_chains(bases) do
+    Stream.flat_map(bases, fn {base_label, base_rect} ->
       Stream.map(@wrap_operations, fn
         {operation, width_factor, height_factor, horizontal, vertical} ->
           {
@@ -276,7 +305,6 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
           }
       end)
     end)
-    |> Enum.take(limit)
   end
 
   defp transform_chain_label(base_label, operation), do: "#{base_label}>#{operation}"
@@ -368,10 +396,12 @@ defmodule CircleStory.Books.Composition.Quality.Candidates do
   defp maybe_add(existing, true, values), do: existing ++ values
   defp maybe_add(existing, false, _values), do: existing
 
+  defp rect_key(rect), do: {rect.x, rect.y, rect.w, rect.h}
+
   defp deduplicate_rects(rects) do
     rects
     |> Enum.reduce({MapSet.new(), []}, fn {origin, rect}, {seen, acc} ->
-      key = {rect.x, rect.y, rect.w, rect.h}
+      key = rect_key(rect)
 
       if MapSet.member?(seen, key) do
         {seen, acc}

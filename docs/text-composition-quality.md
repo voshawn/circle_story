@@ -234,6 +234,13 @@ measurement is bounded at `34 × 3 × 3 × 3 = 918` candidates. This preserves
 all baseline and seed-wrap operations plus deterministic representation of both
 depth-two families without evaluating their Cartesian product.
 
+A family's single composition slot is spent on the first chain, in deterministic
+base and operation order, whose geometry is not already generated. A base that
+the safety bounds clamp back onto the seed — a leftward growth or translation of
+a seed already pinned to the hard left inset, for example — therefore cannot
+consume its family's slot with a duplicate rectangle. A family contributes
+nothing only when every one of its chains repeats geometry already present.
+
 Finalist work remains bounded at exactly two transparent scans per successfully
 rendered finalist mask: one black and one white. Worst case is therefore
 `2 x finalist_limit` full-resolution scans, reported as `scored_count` and
